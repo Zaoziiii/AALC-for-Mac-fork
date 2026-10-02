@@ -14,6 +14,10 @@
 
 ## 开始使用
 
+1. 打开 **[Releases 下载页面](https://github.com/Zaoziiii/AhabAssistantLimbusCompany/releases/tag/v1.0.9-mac.14)**，在 **Assets** 中下载 **[AALC-Mac-mac.14.zip](https://github.com/Zaoziiii/AhabAssistantLimbusCompany/releases/download/v1.0.9-mac.14/AALC-Mac-mac.14.zip)**，不要下载 Source code 源码包。
+2. 解压后将 `AALC Mac.app` 放入“应用程序”，**直接在 macOS 中打开，在 CrossOver 外运行即可**。不需要把 AALC 安装到 CrossOver 容器，也不需要安装 Python；只有 Steam 和《边狱公司》游戏在 CrossOver 中运行。
+3. 首次运行请给 AALC Mac 开启“屏幕录制”和“辅助功能”权限，完全退出并重开后使用。
+
 阅读 **[Mac 安装、权限、使用与构建指南](README.macOS.md)**。游戏需使用当前桌面的普通 16:9 窗口；可遮挡，但不能最小化、隐藏、跨桌面或在任务中移动/缩放。
 
 首次使用先通过“权限与游戏检测”检查截图。地图拖动期间鼠标会短暂被借用，后台模式并非全过程零占用鼠标。快捷键：`Ctrl+Q` 停止、`Option+P` 暂停、`Option+R` 恢复。
