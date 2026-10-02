@@ -1,4 +1,7 @@
+import re
+from collections import Counter
 from math import ceil
+from statistics import median
 from time import sleep
 
 from module.automation import auto
@@ -115,6 +118,50 @@ def _ordered_team_click_offset(page_count, team_order):
     return offset
 
 
+_TEAM_ROW = re.compile(r"^(?:T[EF][AL]\w{0,2}S|编队)")
+
+
+def locate_named_team(num, rows):
+    """Find team `num` among OCR rows [(text, (x, y)), ...] of the team list.
+
+    Substring matching clicked TEAMS#13 for team 1, and the selected row was
+    read as just "TEAMS". Rows are numbered by position instead: the numbers
+    OCR did read (tolerating "#"→"W"/missing) fix the list offset by majority,
+    so the target row is found even if its own label was misread.
+
+    Returns ("found", (x, y)), ("up", None), ("down", None) or ("unknown", None).
+    """
+    rows = sorted(((t.upper().replace(" ", ""), p) for t, p in rows
+                   if _TEAM_ROW.match(t.upper().replace(" ", ""))), key=lambda r: r[1][1])
+    if len(rows) < 2:
+        return "unknown", None
+    gaps = [b[1][1] - a[1][1] for a, b in zip(rows, rows[1:]) if b[1][1] - a[1][1] > 10]
+    if not gaps:
+        return "unknown", None
+    spacing = median(gaps)
+    top = rows[0][1][1]
+    offsets = Counter()
+    for text, (_, y) in rows:
+        if m := re.search(r"(\d+)$", text):
+            offsets[int(m.group(1)) - round((y - top) / spacing)] += 1
+    if not offsets:
+        return "unknown", None
+    first, votes = offsets.most_common(1)[0]
+    if votes < 2:
+        return "unknown", None
+    last = first + round((rows[-1][1][1] - top) / spacing)
+    if num < first:
+        return "up", None
+    if num > last:
+        return "down", None
+    expected = top + (num - first) * spacing
+    text, position = min(rows, key=lambda r: abs(r[1][1] - expected))
+    if abs(position[1] - expected) > spacing / 3:
+        return "unknown", None
+    log.debug(f"队伍 #{num} 按行推算为 {text}，可见范围 #{first}-#{last}")
+    return "found", position
+
+
 @begin_and_finish_time_log(task_name="寻找队伍")
 # 找队
 def select_battle_team(num):
@@ -164,20 +211,25 @@ def select_battle_team(num):
             sleep(1)
             return True
         else:
-            team_name_zh = "编队#" + str(num)
-            team_name_en = [f"TEAMS #{num}", f"TEAMS#{num}", f"TFAMS#{num}"]
+            from module.ocr import ocr
             position_bbox = (0, 0, position[0] + 130 * scale, position[1] + 600 * scale)
             for i in range(10):
                 while auto.take_screenshot() is None:
                     continue
-                if team_position := auto.find_language_text(team_name_zh, team_name_en, my_crop=position_bbox):
-                    auto.mouse_action_with_pos(team_position, offset=False)
+                result = ocr.run(auto.screenshot.crop(position_bbox))
+                rows = [(text, ((box[0][0] + box[2][0]) / 2, (box[0][1] + box[2][1]) / 2))
+                        for text, box in zip(result.txts or [], result.boxes if result.boxes is not None else [])]
+                where, team_position = locate_named_team(num, rows)
+                if where == "found":
+                    auto.mouse_click(team_position[0], team_position[1])
                     find = True
                     break
+                # Scroll toward the team; unknown pages continue downward as before.
+                direction = 1 if where == "up" else -1
                 auto.mouse_swipe_for_team_scroll(
                     first_position[0],
                     first_position[1] + 375 * scale,
-                    dy=-NAMED_TEAM_PAGE_SWIPE_DISTANCE * scale,
+                    dy=direction * NAMED_TEAM_PAGE_SWIPE_DISTANCE * scale,
                     duration=0.3,
                 )
                 sleep(1)

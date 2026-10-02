@@ -1,3 +1,5 @@
+from tasks.base.opening_state import find_grace_anchor
+from tasks.base.map_state import is_mirror_map
 import re
 import time
 from time import sleep
@@ -10,6 +12,7 @@ from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from module.my_error.my_error import (
     InputAttributeError,
+    userStopError,
     backMainWinError,
     cannotOperateGameError,
     unableToFindTeamError,
@@ -42,6 +45,9 @@ def to_log_with_time(msg, elapsed_time):
     minutes, seconds = divmod(remainder, 60)
     time_string = f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
     log.info(f"{msg} 总耗时:{time_string}")
+
+
+BACKGROUND_ROAD_RETRIES = 2
 
 
 class Mirror:
@@ -147,7 +153,7 @@ class Mirror:
                 return True
             if auto.find_element("mirror/shop/shop_coins_assets.png"):  # 防止卡死在商店
                 break
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            if is_mirror_map():
                 break
             if auto.click_element("mirror/road_to_mir/resume_assets.png"):
                 break
@@ -188,7 +194,7 @@ class Mirror:
                 continue
             if auto.find_element("mirror/road_to_mir/select_team_stars_assets.png"):
                 break
-            if auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png"):
+            if find_grace_anchor():
                 # 防止卡在星光选择
                 break
             if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
@@ -261,8 +267,8 @@ class Mirror:
 
             # 选择楼层主题包的情况
             if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
-                sleep(2)  # 等待主题包页面加载完成再打开楼层设置
-                self.get_which_floor("mirror/theme_pack/theme_pack_setting_assets.png")
+                sleep(2)  # 等待主题包页面及楼层标题加载完成
+                self.get_which_floor(theme_pack=True)
                 self._enter_hard_mode_if_needed()
                 switch_theme_pack_difficulty(self.hard_mode)
                 select_theme_pack(self.hard_mode, self.floor, self.team_order, self.use_custom_theme_pack_weight)
@@ -289,7 +295,7 @@ class Mirror:
                 continue
 
             # 在镜牢中寻路
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            if is_mirror_map():
                 auto.mouse_to_blank()
                 while auto.take_screenshot() is None:
                     continue
@@ -312,7 +318,7 @@ class Mirror:
 
                 while auto.take_screenshot() is None:
                     continue
-                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                if is_mirror_map():
                     _, elapsed = self._time_call(self.search_road)
                     self.find_road_total_time += elapsed
                 continue
@@ -389,7 +395,7 @@ class Mirror:
                 continue
 
             # 镜牢星光
-            if auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png", threshold=0.9):
+            if find_grace_anchor():
                 self.enter_mir_with_star()
                 continue
 
@@ -749,7 +755,9 @@ class Mirror:
         return True
 
     def enter_mir_with_star(self):
-        coins = auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png", threshold=0.9)
+        coins = find_grace_anchor()
+        if not coins:
+            return False
         scale = cfg.set_win_size / 1440
         first_starlight = [coins[0] - 1800 * scale, coins[1] + 300 * scale]
         starlights_X = [first_starlight[0] + (i % 5) * 400 * scale for i in range(10)]
@@ -867,7 +875,7 @@ class Mirror:
                         scroll = True
                         break
 
-            if auto.click_element(f"mirror/road_to_mir/{team_system}_gift_assets.png") and select_system == False:
+            if not select_system and auto.click_element(f"mirror/road_to_mir/{team_system}_gift_assets.png"):
                 select_system = True
                 continue
 
@@ -1037,7 +1045,7 @@ class Mirror:
                 log.warning("编队码加载失败，继续使用当前队伍配置")
         loop_count = 30
         auto.model = "clam"
-        while auto.find_element("mirror/road_to_mir/dreaming_star/coins_assets.png") is None:
+        while find_grace_anchor() is None:
             if auto.take_screenshot() is None:
                 continue
             loop_count -= 1
@@ -1075,17 +1083,29 @@ class Mirror:
                 return True
             log.debug("简单键盘寻路失败，回退到常规寻路")
 
-        try:
-            if next_node := self.mirror_map.get_next_step():
-                if next_node is True:
-                    return True
-                if self.mirror_map.enter_next_node(next_node):
-                    return True
-            log.debug("未能构建路线图，尝试使用最近节点法重新寻路")
-        except Exception as e:
-            log.debug(f"使用onnx模型寻路出错:{e}")
-        finally:
-            auto.mouse_to_blank()
+        # Background: a failed or crashed attempt is retried twice from a fresh
+        # plan (the drag recentres the bus) before the task stops.
+        attempts = 1 + (BACKGROUND_ROAD_RETRIES if cfg.background_click else 0)
+        for attempt in range(attempts):
+            try:
+                if next_node := self.mirror_map.get_next_step():
+                    if next_node is True:
+                        return True
+                    if self.mirror_map.enter_next_node(next_node):
+                        return True
+                log.debug("未能构建路线图，尝试使用最近节点法重新寻路")
+            except userStopError:
+                raise
+            except Exception as e:
+                log.debug(f"使用onnx模型寻路出错:{e}")
+            finally:
+                auto.mouse_to_blank()
+            if attempt + 1 < attempts:
+                log.warning(f"寻路未能进入下一节点，清除路线缓存后重试（第 {attempt + 1}/{attempts - 1} 次）")
+                self.mirror_map.floor_map = []
+                sleep(2)
+        if cfg.background_click:
+            raise userStopError(f"后台寻路重试 {BACKGROUND_ROAD_RETRIES} 次仍未能进入下一节点，已停止；不会重进镜牢")
         try:
             for _ in range(3):
                 while auto.take_screenshot() is None:
@@ -1110,6 +1130,8 @@ class Mirror:
         except InputAttributeError as e:
             log.error(f"寻路出错:{e}, 尝试重进镜牢")
             pass
+        except userStopError:
+            raise
         except Exception as e:
             log.error(f"寻路出错:{e}")
             return False
@@ -1184,7 +1206,7 @@ class Mirror:
             # 如果在战斗中或回到镜牢路线图中，则跳出循环
             if auto.find_element("battle/turn_assets.png"):
                 break
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            if is_mirror_map():
                 break
 
             if event_chance == 0:
@@ -1479,6 +1501,8 @@ class Mirror:
                         return False
                     return
 
+            except userStopError:
+                raise
             except Exception as e:
                 log.error(e)
                 continue
@@ -1562,44 +1586,41 @@ class Mirror:
     def in_shop(self):
         self.shop.in_shop(self.floor)
 
-    def get_which_floor(self, setting_assets="mirror/road_in_mir/setting_assets.png"):
-        setting_button = auto.find_element(setting_assets, take_screenshot=True)
-        if setting_button is None:
-            log.info("未找到镜牢楼层设置按钮，跳过楼层识别")
-            return
+    def get_which_floor(self, theme_pack=False):
+        from tasks.base.floor_state import current_floor_from_panel, current_floor_from_theme_pack
+        if theme_pack:
+            for _ in range(3):
+                frame = auto.take_screenshot(gray=False)
+                if frame is not None:
+                    auto.screenshot = frame.convert("L")
+                floor = current_floor_from_theme_pack(frame) if frame is not None else None
+                if floor is not None:
+                    self.floor = floor
+                    self.mirror_map.refresh_floor(floor)
+                    log.info(f"当前镜牢层数: {floor}（主题包标题）")
+                    return
+                sleep(0.4)
+            raise userStopError("无法识别主题包页的楼层标题，已停止；请保持 SELECT FLOOR X THEME PACK 标题完整可见")
+        setting_button = auto.find_element("mirror/road_in_mir/setting_assets.png", take_screenshot=True)
+        if not setting_button:
+            raise userStopError("未找到镜牢楼层面板，请停在地图或主题包页后重试")
         auto.mouse_action_with_pos(setting_button)
-        sleep(1)  # 等待楼层设置面板展开后再识别进度
-
-        scale = cfg.set_win_size / 1440
-        if auto.find_element(
-            "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
-        ):
-            # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
-            clear_floors = auto.find_element(
-                "mirror/road_in_mir/clear_floor.png",
-                find_type="image_with_multiple_targets",
-                take_screenshot=True,
-                min_dist=80 * scale,
-            )
-            if clear_floors:
-                self.floor = len(clear_floors) + 1
-                log.debug(f"当前镜牢层数: {self.floor}")
-                self.mirror_map.refresh_floor(self.floor)
-            else:
-                # CLEAR 识别失败时回退到历史的未通关楼层模板。
-                not_passed_floors = auto.find_element(
-                    "mirror/road_in_mir/not_passed_floor.png",
-                    find_type="image_with_multiple_targets",
-                    take_screenshot=True,
-                    min_dist=80 * scale,
-                )
-                if not_passed_floors:
-                    self.floor = 5 - len(not_passed_floors)
-                    log.debug(f"当前镜牢层数: {self.floor}（使用未通关楼层兜底识别）")
-                    self.mirror_map.refresh_floor(self.floor)
-                else:
-                    log.info(f"未识别到当前镜牢楼层，保留当前楼层: {self.floor}")
-        else:
-            log.info("未识别到当前镜牢楼层")
-        auto.mouse_click_blank()
-        sleep(1)  # 等待设置窗口关闭
+        try:
+            for _ in range(3):
+                sleep(0.4)
+                frame = auto.take_screenshot(gray=False)
+                if frame is None:
+                    continue
+                auto.screenshot = frame.convert("L")
+                if not auto.find_element("mirror/road_in_mir/to_window_assets.png", model="retina", threshold=0.90):
+                    continue
+                floor = current_floor_from_panel(frame)
+                if floor is not None:
+                    self.floor = floor
+                    self.mirror_map.refresh_floor(floor)
+                    log.info(f"当前镜牢层数: {floor}")
+                    return
+            raise userStopError("无法确定当前镜牢楼层，已停止；请保持楼层进度面板完整后重试")
+        finally:
+            auto.mouse_click_blank()
+            sleep(0.4)

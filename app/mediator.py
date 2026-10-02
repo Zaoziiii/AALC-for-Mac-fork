@@ -2,6 +2,7 @@ from PySide6.QtCore import QObject, Signal
 
 
 class Mediator(QObject):
+    desktop_notification = Signal(str, str)
     switch_page = Signal(str)
     switch_team_setting = Signal(str)
     delete_team_setting = Signal(str)

@@ -13,13 +13,7 @@ team_toggle_button_group = []
 
 task_check_box = []
 
-page_name_and_index = {
-    "set_windows": 0,
-    "daily_task": 1,
-    "get_reward": 2,
-    "buy_enkephalin": 3,
-    "mirror": 4,
-}
+page_name_and_index = {"daily_task": 0, "get_reward": 1, "buy_enkephalin": 2, "mirror": 3}
 
 set_win_size_options = {
     "1920*1080": 1080,
@@ -231,9 +225,8 @@ all_checkbox_config_name = [
 ]
 
 win_input_type_options = {
-    QT_TRANSLATE_NOOP("ComboBoxSettingCard", "前台模式 (pyautogui)"): "foreground",
-    QT_TRANSLATE_NOOP("ComboBoxSettingCard", "后台模式 (默认) (pywin32)"): "background",
-    QT_TRANSLATE_NOOP("ComboBoxSettingCard", "后台增强 (pywin32+set_window_pos)"): "window_move",
+    "macOS 前台模式（占用鼠标键盘）": "foreground",
+    "CrossOver 后台模式（不占用鼠标键盘）": "background",
 }
 
 

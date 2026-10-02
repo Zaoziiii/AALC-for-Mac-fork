@@ -1,3 +1,4 @@
+from tasks.base.map_state import is_mirror_map
 from time import monotonic, sleep
 
 from module.automation import auto
@@ -69,7 +70,7 @@ def back_init_menu(*, allow_restart: bool = True):
             continue
         if auto.click_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
             continue
-        if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+        if is_mirror_map():
             auto.click_element("mirror/road_in_mir/setting_assets.png")
             continue
 

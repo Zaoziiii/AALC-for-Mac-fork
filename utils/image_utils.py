@@ -211,6 +211,10 @@ class ImageUtils:
     @staticmethod
     def match_template(screenshot, template, bbox, model="clam"):
         try:
+            if model == "retina":
+                # Suppress subpixel rasterization differences without changing scale or search area.
+                screenshot = cv2.GaussianBlur(screenshot, (0, 0), 1.5)
+                template = cv2.GaussianBlur(template, (0, 0), 1.5)
             shape = screenshot.shape
             if len(shape) == 2:
                 height, width = shape

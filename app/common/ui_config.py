@@ -11,7 +11,8 @@ BORDER_STYLE = {
 
 # 全局字体配置
 FONT_FAMILIES = [
-    "Segoe UI",  # Windows 现代UI字体
+    "PingFang SC",
+    "Helvetica Neue",  # Windows 现代UI字体
     "Microsoft YaHei",  # 微软雅黑
     "微软雅黑",  # 微软雅黑中文名
     "Noto Sans CJK SC",  # 跨平台中文字体

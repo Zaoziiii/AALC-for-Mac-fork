@@ -79,6 +79,10 @@ class AbstractInput:
         """
         raise InterruptedError(f"未实现的输入方法 {self.__class__.__name__}.mouse_drag")
 
+    def mouse_drag_map(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True) -> None:
+        """拖动镜牢地图。后台模式需要暂借系统光标，其余输入方式等同 mouse_drag。"""
+        self.mouse_drag(x, y, drag_time=drag_time, dx=dx, dy=dy, move_back=move_back)
+
     def mouse_swipe_for_scroll(self, x, y, duration=0.3, dx=0, dy=0, move_back=True) -> None:
         """各输入适配器必须实现的列表滚动手势。
 

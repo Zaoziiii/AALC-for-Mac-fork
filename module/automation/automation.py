@@ -19,6 +19,8 @@ from utils.singletonmeta import SingletonMeta
 
 from ..config import cfg
 from ..logger import log
+from module.my_error.my_error import userStopError
+from module.macos.control import check_cancelled, wait_cancelled
 from ..ocr import ocr
 from .input_handlers.input import AbstractInput
 from .screenshot import ScreenShot
@@ -60,63 +62,24 @@ class Automation(metaclass=SingletonMeta):
         self.model = "clam"
 
     def init_input(self):
-        """初始化输入处理器，将输入操作如点击、拖动等绑定至实例变量"""
-        if self.input_handler:
-            self.input_handler = None
-        if cfg.simulator:
-            if cfg.simulator_type == 0:
-                from .input_handlers.simulator.mumu_control import MumuControl
-
-                log.debug("使用MuMu模拟器输入模块")
-                if MumuControl.connection_device is not None:
-                    self.input_handler = MumuControl.connection_device
-            else:
-                from .input_handlers.simulator.simulator_control import SimulatorControl
-
-                log.debug("使用基于PyMiniTouch的通用模拟器输入模块")
-                self.input_handler = SimulatorControl.connection_device
-        else:
-            input_type = cfg.win_input_type
-            if input_type == "background":
-                from .input_handlers.input import BackgroundInput
-
-                log.debug("使用后台点击模块")
-                self.input_handler = BackgroundInput()
-            elif input_type == "foreground":
-                from .input_handlers.input import Input
-
-                log.debug("使用前台点击模块")
-                self.input_handler = Input()
-            elif input_type == "window_move":
-                from .input_handlers.input import WindowMoveInput
-
-                log.debug("使用基于窗口移动的后台点击模块")
-                self.input_handler = WindowMoveInput()
-        if self.input_handler is None:
-            from .input_handlers.input import BackgroundInput
-
+        from .input_handlers.input import Input
+        from module.macos.window import window
+        mode = cfg.get_value('win_input_type', 'foreground')
+        if mode not in ('foreground', 'background'):
+            raise ValueError(f'不支持的 macOS 操控方式：{mode}')
+        window.background = mode == 'background'
+        cfg.unsaved_set_value('background_click', window.background)
+        if window.background:
+            from .input_handlers.background import BackgroundInput
             self.input_handler = BackgroundInput()
-        assert isinstance(self.input_handler, AbstractInput), "输入处理器必须是AbstractInput的实例"
+        else:
+            self.input_handler = Input()
         self.set_pause = self.input_handler.set_pause
         self.wait_pause = self.input_handler.wait_pause
-
-        self.mouse_click = self.input_handler.mouse_click
-        self.mouse_click_blank = self.input_handler.mouse_click_blank
-        self.mouse_drag = self.input_handler.mouse_drag
-        self.mouse_swipe_for_scroll = self.input_handler.mouse_swipe_for_scroll
-        self.mouse_drag_down = self.input_handler.mouse_drag_down
-        self.mouse_scroll = self.input_handler.mouse_scroll
-        self.mouse_to_blank = self.input_handler.mouse_to_blank
-        self.mouse_drag_link = self.input_handler.mouse_drag_link
-        self.key_press = self.input_handler.key_press
-        self.input_text = self.input_handler.input_text
-
-        methods = inspect.getmembers(AbstractInput, predicate=inspect.isfunction)
-        for name, method in methods:
-            if name.startswith("mouse_") or name.startswith("key_") or name.startswith("input_"):
-                method = self._run_business_interaction(name)
-                setattr(self, name, method)
-        self.memory_protection = cfg.memory_protection
+        for name, _ in inspect.getmembers(AbstractInput, predicate=inspect.isfunction):
+            if name.startswith(("mouse_", "key_", "input_")):
+                setattr(self, name, self._run_business_interaction(name))
+        self.memory_protection = False
 
     def suspend_interactions(self) -> None:
         """暂时阻止业务线程继续点击。"""
@@ -144,8 +107,13 @@ class Automation(metaclass=SingletonMeta):
         """
 
         def wrapper(*args, **kwargs):
+            deadline = time.monotonic() + GATE_WAIT_TIMEOUT
             while True:
-                gate_open = self._interaction_gate.wait(timeout=GATE_WAIT_TIMEOUT)
+                check_cancelled()
+                gate_open = self._interaction_gate.wait(timeout=0.05)
+                if not gate_open and time.monotonic() < deadline:
+                    continue
+                check_cancelled()
                 with self._input_lock:
                     if gate_open and self._interaction_gate.is_set():
                         method = getattr(self.input_handler, method_name)
@@ -353,13 +321,14 @@ class Automation(metaclass=SingletonMeta):
         start_time = time.time()
         screenshot_interval_time = cfg.screenshot_interval if cfg.screenshot_interval else 0.85
         while True:
+            self.wait_pause()
             try:
                 if time.time() - self.last_screenshot_time < screenshot_interval_time:
                     wait_time = max(
                         screenshot_interval_time - (time.time() - self.last_screenshot_time),
                         0,
                     )
-                    time.sleep(wait_time)
+                    wait_cancelled(wait_time)
 
                 with self._screenshot_lock:
                     result = ScreenShot.take_screenshot(gray)
@@ -370,26 +339,14 @@ class Automation(metaclass=SingletonMeta):
                     return result
                 else:
                     return None
+            except userStopError:
+                raise
             except Exception as e:
                 log.error(f"截图失败:{e}")
-            time.sleep(1)
+            wait_cancelled(1)
             if time.time() - start_time > 60:
-                log.error("截图超时，尝试重启游戏")
-                import os
-
-                import win32process
-
-                from module.game_and_screen import screen
-
-                try:
-                    _, pid = win32process.GetWindowThreadProcessId(screen.handle.hwnd)
-                    os.system(f"taskkill /F /PID {pid}")
-                except:
-                    pass
-                from tasks.base.script_task_scheme import init_game
-
-                init_game()
-                start_time = time.time()
+                log.error("截图超时，停止任务")
+                raise userStopError("截图超时，请检查游戏窗口和屏幕录制权限")
 
     def find_element(
         self,

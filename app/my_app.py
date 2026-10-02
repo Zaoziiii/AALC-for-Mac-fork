@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
+    QPushButton,
 )
 from qfluentwidgets import (
     ProgressRing,
@@ -43,10 +44,8 @@ from app.custom_pivot import FullWidthPivot
 from app.farming_interface import FarmingInterface
 from app.language_manager import LanguageManager
 from app.page_card import MarkdownViewer
-from app.resource_sync_coordinator import ResourceSyncCoordinator
 from app.setting_interface import SettingInterface
 from app.team_setting_card import TeamSettingCard
-from app.tools_interface import ToolsInterface
 from module.after_completion_types import (
     LEGACY_AFTER_COMPLETION_TO_CONFIG,
     POWER_ACTION_NONE,
@@ -97,7 +96,7 @@ class MainWindow(FramelessWindow):
 
         self.setTitleBar(StandardTitleBar(self))
         self.setWindowIcon(QIcon("./assets/logo/my_icon_256X256.ico"))
-        self.setWindowTitle(f"Ahab Assistant Limbus Company - {cfg.version}")
+        self.setWindowTitle(f"AALC Mac · {cfg.version}")
         self.setObjectName("MainWindow")
         setThemeColor("#9c080b")
         LanguageManager().register_component(self)
@@ -154,21 +153,8 @@ class MainWindow(FramelessWindow):
 
         # 创建子界面
         self.farming_interface = FarmingInterface(self)
-        self.tools_interface = ToolsInterface(self)
         self.setting_interface = SettingInterface(self)
         # 由独立协调类统一接管资源同步编排，主窗口只保留界面接缝。
-        self.resource_sync_coordinator = ResourceSyncCoordinator(
-            window=self,
-            status_label=self.resource_sync_status_label,
-            startup_argv=list(argv),
-            continue_startup=lambda: self._continue_main_startup_sequence(list(argv)),
-            set_progress=self.set_progress_ring,
-            has_running_script=self._has_running_script,
-        )
-        # 设置页只负责发信号，由协调类统一接管手动资源同步入口。
-        self.setting_interface.manualResourceSyncRequested.connect(
-            self.resource_sync_coordinator.start_manual_resource_sync_check
-        )
         # self.team_setting = TeamSettingCard(self)
 
         # 向 pivot 添加子界面
@@ -178,11 +164,13 @@ class MainWindow(FramelessWindow):
         else:
             self.help_interface = MarkdownViewer("./assets/doc/en/How_to_use_EN.md")
         self.addSubInterface(self.help_interface, "help_interface", "帮助")
-        self.addSubInterface(self.tools_interface, "tools_interface", "小工具")
         self.addSubInterface(self.setting_interface, "setting_interface", "设置")
         # self.addSubInterface(self.team_setting, 'team_setting', '队伍设置')
 
         self.HBoxLayout.addWidget(self.pivot)
+        self.mac_status_button = QPushButton("权限与游戏检测", self)
+        self.mac_status_button.clicked.connect(self.show_mac_status)
+        self.HBoxLayout.addWidget(self.mac_status_button)
         self.vBoxLayout.addSpacing(10)
         self.vBoxLayout.addLayout(self.HBoxLayout, 0)
         self.vBoxLayout.addWidget(self.stackedWidget)
@@ -208,7 +196,7 @@ class MainWindow(FramelessWindow):
         # 初始化进度环
         self.set_ring()
         # 启动阶段先走软件更新检查，再决定是否继续执行资源同步。
-        self.resource_sync_coordinator.start_startup_check()
+        self.init_system_tray()
 
         # 判断是否需要降低缩放以适配小屏幕
         screen_rect = self.screen().availableGeometry()  # 获取到的rect会经过缩放因子的缩放
@@ -242,6 +230,14 @@ class MainWindow(FramelessWindow):
                 log.warning("计算得到的缩放因子大于最高预设值，调整为200%")
             cfg.set_value("zoom_scale", scale_factor)
 
+    def show_mac_status(self):
+        if self._has_running_script():
+            self.show_warning("请先停止任务，再检测游戏画面")
+            return
+        from app.macos_status import MacStatusDialog
+        self.mac_status_dialog = MacStatusDialog(self)
+        self.mac_status_dialog.show()
+
     def init_system_tray(self):
         """初始化系统托盘图标与点击事件。"""
         # 创建系统托盘对象，并绑定主窗口的激活处理逻辑。
@@ -249,6 +245,7 @@ class MainWindow(FramelessWindow):
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon("./assets/logo/my_icon_256X256.ico"))
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
+        mediator.desktop_notification.connect(self.tray_icon.showMessage)
         self.tray_icon.show()
 
     def _continue_main_startup_sequence(self, argv: list[str]) -> None:
@@ -427,46 +424,20 @@ class MainWindow(FramelessWindow):
             self.resource_sync_coordinator.apply_status_style(is_dark)
 
     def closeEvent(self, e):
-        # 保存窗口位置
         cfg.set_value("window_position_x", self.x())
         cfg.set_value("window_position_y", self.y())
-
-        if (
-            self.farming_interface.interface_left.my_script is not None
-            and self.farming_interface.interface_left.my_script.isRunning()
-        ):
-            # 确保窗口可见，以便正确显示确认对话框
-            if not self.isVisible():
-                self.showNormal()
-                self.raise_()
-                self.activateWindow()
-
-            message_box = MessageBoxConfirm(
-                self.tr("有正在进行的任务"),
-                self.tr("脚本正在运行中，确定要退出程序吗？"),
-                self.window(),
-            )
-            if message_box.exec():
-                self.farming_interface.interface_left.my_script.terminate()
-            else:
-                e.ignore()
-                return
-
-        if self.tools_interface.tools:
-            message_box = MessageBoxConfirm(
-                self.tr("有正在运行的工具"),
-                self.tr("有工具正在运行中，确定要退出程序吗？"),
-                self.window(),
-            )
-            if message_box.exec():
-                for tool in self.tools_interface.tools.values():
-                    if isinstance(tool.w, QWidget):
-                        tool.w.close()
-                    elif isinstance(tool.w, QThread):
-                        tool.w.terminate()
-            else:
-                e.ignore()
-                return
+        worker = self.farming_interface.interface_left.my_script
+        if worker is not None and worker.isRunning():
+            if not getattr(self, '_closing_after_task', False):
+                message_box=MessageBoxConfirm("停止任务并退出", "会先停止输入、释放鼠标，再退出应用。", self)
+                if message_box.exec():
+                    self._closing_after_task=True
+                    worker.finished.connect(self.close)
+                    worker.terminate()
+            e.ignore()
+            return
+        cfg.flush()
+        self.farming_interface._listener_stop()
         return super().closeEvent(e)
 
     def changeEvent(self, event):
@@ -564,7 +535,6 @@ class MainWindow(FramelessWindow):
         mediator.save_warning.connect(self.show_save_warning)
         mediator.tasks_warning.connect(self.show_tasks_warning)
         mediator.update_progress.connect(self.set_progress_ring)
-        mediator.download_complete.connect(self.download_and_install)
         mediator.warning.connect(self.show_warning)
         mediator.hdr_warning.connect(self.show_hdr_warning)
         # 由任务线程发起请求、由主窗口执行前台切换，避免执行层直接耦合 UI。
@@ -577,35 +547,8 @@ class MainWindow(FramelessWindow):
         self._do_force_foreground()
         QTimer.singleShot(_FOREGROUND_RETRY_DELAY_MS, self._do_force_foreground)
 
-    def _do_force_foreground(self) -> None:
-        if os.name != "nt":
-            return
-        if not self.isVisible():
-            self.showNormal()
-        hwnd = int(self.winId())
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        hwnd_fg = user32.GetForegroundWindow()
-        if hwnd_fg == 0:
-            log.debug("未获取到当前前台窗口，跳过本次焦点切换")
-            return
-        if hwnd_fg == hwnd:
-            return
-        thread_fg = user32.GetWindowThreadProcessId(hwnd_fg, None)
-        if thread_fg == 0:
-            log.debug("未获取到前台线程，跳过本次焦点切换")
-            return
-        thread_cur = kernel32.GetCurrentThreadId()
-        attached = thread_fg != thread_cur
-        if attached:
-            # 借用当前前台线程的输入队列权限，降低 SetForegroundWindow 被系统忽略的概率。
-            user32.AttachThreadInput(thread_fg, thread_cur, True)
-        try:
-            user32.BringWindowToTop(hwnd)
-            user32.SetForegroundWindow(hwnd)
-        finally:
-            if attached:
-                user32.AttachThreadInput(thread_fg, thread_cur, False)
+    def _do_force_foreground(self):
+        self.showNormal()
         self.raise_()
         self.activateWindow()
 
@@ -628,17 +571,11 @@ class MainWindow(FramelessWindow):
         if url.endswith(".md"):
             self.help_interface.load_markdown(url)
 
-    def download_and_install(self, file_name):
-        messages_box = MessageBoxConfirm(self.tr("更新提醒"), self.tr("下载已经完成，是否开始更新"), self.window())
-        if messages_box.exec():
-            source_file = os.path.abspath("./AALC Updater.exe")
-            assert_name = file_name
-            subprocess.Popen([source_file, assert_name], creationflags=subprocess.DETACHED_PROCESS)
+
 
     def retranslateUi(self):
         self.pivot.setItemText("farming_interface", self.tr("一键长草"))
         self.pivot.setItemText("help_interface", self.tr("帮助"))
-        self.pivot.setItemText("tools_interface", self.tr("小工具"))
         self.pivot.setItemText("setting_interface", self.tr("设置"))
 
         if "team_setting" in list(self.pivot.items.keys()):

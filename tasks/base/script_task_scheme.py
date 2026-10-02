@@ -4,8 +4,6 @@ from datetime import datetime
 from threading import Event
 from time import sleep, time
 
-import win32api
-import win32con
 from playsound3 import playsound
 from PySide6.QtCore import QT_TRANSLATE_NOOP, QMutex, QThread
 
@@ -15,7 +13,6 @@ from module.automation import auto
 from module.config import TeamSetting, cfg
 from module.decorator.decorator import begin_and_finish_time_log
 from module.game_and_screen import game_process, screen
-from module.game_and_screen.hdr import get_monitor_hdr_info
 from module.logger import log
 from module.my_error.my_error import (
     backMainWinError,
@@ -91,20 +88,33 @@ def onetime_mir_process(team_setting: TeamSetting, team_num: int):
         cfg.set_value("hard_mirror", True)
         cfg.set_value("hard_mirror_chance", 3)
 
-    # 进行一次镜牢
-    try:
-        mirror_adventure = Mirror(team_setting, team_num)
-        if mirror_adventure.run():
-            del mirror_adventure
-            mirror_adventure = None
-            back_init_menu()
-            make_enkephalin_module()
-            return True
-        else:
+    # 进行一次镜牢；游戏崩溃退出时自动重启并从主界面继续这一次镜牢
+    from module.macos.recovery import GameWindowLost, game_recovery
+    after_restart = False
+    while True:
+        try:
+            if after_restart:
+                init_game()
+                game_recovery.finish()
+                back_init_menu()
+                after_restart = False
+            mirror_adventure = Mirror(team_setting, team_num)
+            if mirror_adventure.run():
+                del mirror_adventure
+                mirror_adventure = None
+                back_init_menu()
+                make_enkephalin_module()
+                return True
+            else:
+                return False
+        except GameWindowLost:
+            game_recovery.recover()
+            after_restart = True
+        except userStopError:
+            raise
+        except Exception as e:
+            log.exception(f"镜牢行动出错: {e}")
             return False
-    except Exception as e:
-        log.exception(f"镜牢行动出错: {e}")
-        return False
 
 
 def to_get_reward():
@@ -125,85 +135,17 @@ def to_get_reward():
 
 
 def init_game():
-    log.debug("初始化游戏")
-    if cfg.simulator:
-        if cfg.simulator_type == 0:
-            mumu_instance_number = 0
-            if cfg.simulator_port == 0 and cfg.mumu_instance_number == -1:
-                log.info("未设置模拟器端口或实例编号，使用默认mumu模拟器")
-            elif cfg.simulator_port != 0:
-                if cfg.simulator_port == 16384 or (cfg.simulator_port - 16384) % 32 == 0:
-                    mumu_instance_number = 0 if cfg.simulator_port == 16384 else (cfg.simulator_port - 16384) // 32
-                    log.debug(f"使用mumu模拟器实例号为 {mumu_instance_number}")
-                else:
-                    log.info("设置的模拟器端口非常用默认端口，使用默认mumu模拟器")
-            elif cfg.mumu_instance_number != -1:
-                mumu_instance_number = cfg.mumu_instance_number
-            log.debug(
-                f"init_game: 模拟器类型=Mumu, 实例编号={mumu_instance_number}, "
-                f"simulator_port={cfg.simulator_port}, mumu_instance_number={cfg.mumu_instance_number}"
-            )
-            from module.automation.input_handlers.simulator.mumu_control import (
-                MumuControl,
-            )
-
-            MumuControl(instance_number=mumu_instance_number)
-        else:
-            from module.automation.input_handlers.simulator.simulator_control import (
-                SimulatorControl,
-            )
-
-            # 启动时先清理旧连接
-            SimulatorControl.clean_connect()
-            SimulatorControl()
+    game_process.start_game()
     auto.init_input()
-    if cfg.simulator:
-        if cfg.simulator_type == 0:
-            from module.automation.input_handlers.simulator.mumu_control import (
-                MumuControl,
-            )
-
-            MumuControl.connection_device.start_game()
-        else:
-            from module.automation.input_handlers.simulator.simulator_control import (
-                SimulatorControl,
-            )
-
-            SimulatorControl.connection_device.start_game()
+    if cfg.get_value('win_input_type', 'foreground') == 'background':
+        log.info("CrossOver 后台模式：可使用其他应用；请勿最小化、移动或缩放游戏窗口")
     else:
-        game_process.start_game()
-        while not screen.init_handle():
-            sleep(10)
-        if cfg.set_windows:
-            screen.set_win()
+        log.info("macOS 前台模式：保持游戏可见，挂机期间请勿操作鼠标键盘")
+    screen.init_handle()
+    screen.set_win()
 
 
-def _warn_if_game_monitor_hdr_enabled() -> None:
-    if cfg.simulator or not bool(cfg.get_value("experimental_hdr_warning", True)):
-        return
 
-    hwnd = screen.handle.hwnd
-    if not hwnd:
-        log.warning("游戏窗口句柄无效，跳过 HDR 检测")
-        return
-
-    try:
-        hmonitor = win32api.MonitorFromWindow(
-            hwnd,
-            win32con.MONITOR_DEFAULTTONEAREST,
-        )
-        info = get_monitor_hdr_info(int(hmonitor))
-    except Exception as exc:
-        log.warning(f"检测游戏显示器 HDR 状态失败: {exc}")
-        return
-
-    if info is None or not info.hdr_enabled:
-        return
-
-    acknowledged = Event()
-    log.warning("检测到游戏所在显示器已开启 HDR，可能导致图像识别问题")
-    mediator.hdr_warning.emit(acknowledged)
-    acknowledged.wait()
 
 
 def Resonate_with_Ahab():
@@ -211,32 +153,7 @@ def Resonate_with_Ahab():
     playsound(f"assets/audio/This_is_all_your_fault_{random_number}.mp3", block=False)
 
 
-def _get_game_rendering_scale() -> int | None:
-    """读取非模拟器模式下 Limbus 的渲染比例设置。"""
-    try:
-        import json
-        import winreg
 
-        root = winreg.HKEY_CURRENT_USER
-        sub_key = r"Software\ProjectMoon\LimbusCompany"
-        value_name = "LocalSave.LocalGameOptionData_h467498167"
-        with winreg.OpenKey(root, sub_key, 0, winreg.KEY_READ) as key:
-            raw_data, reg_type = winreg.QueryValueEx(key, value_name)
-
-        if reg_type != winreg.REG_BINARY:
-            log.debug(f"游戏设置注册表值类型为 {reg_type}，预期为 REG_BINARY")
-            return None
-
-        json_str = raw_data.rstrip(b"\x00").decode("utf-8")
-        game_config = json.loads(json_str)
-        return game_config.get("_renderingScale")
-    except FileNotFoundError:
-        log.debug(r"游戏设置注册表路径不存在: HKEY_CURRENT_USER\Software\ProjectMoon\LimbusCompany")
-    except PermissionError:
-        log.debug("读取游戏设置注册表时权限不足")
-    except Exception as e:
-        log.debug(f"读取游戏渲染比例失败: {e}")
-    return None
 
 
 def _batch_combat(process_fn, times, max_times):
@@ -303,6 +220,8 @@ def Mirror_task():
     cfg.normalize_and_sync_team_state(persist=False)
     # 开始执行镜牢任务
     while mir_times > 0:
+        from module.macos.control import check_cancelled
+        check_cancelled()
         # 检测配置的队伍能否顺利执行
         useful = False
         hard = bool(cfg.hard_mirror)
@@ -361,13 +280,9 @@ def script_task() -> None | int:
     start_time = time()
     # 获取（启动）游戏对游戏窗口进行设置
     init_game()
-    _warn_if_game_monitor_hdr_enabled()
 
     if cfg.skip_enkephalin:
         log.info("设置了跳过合成脑啡肽，将不会自动合成\nSet to skip make enkephalin, it will not to do")
-    if not cfg.simulator:
-        if _get_game_rendering_scale() == 2:
-            log.warning("当前游戏渲染比例为低, 可能会导致识别错误, 建议设置为中或更高")
         if cfg.set_win_size == 720:
             log.warning("当前游戏分辨率为1280*720, 可能会导致识别错误或卡死, 建议设置为更高分辨率")
 
@@ -427,7 +342,7 @@ def script_task() -> None | int:
         Resonate_with_Ahab()
 
     should_exit_aalc = False
-    if platform.system() == "Windows":
+    if True:
         # 收尾动作可能主动关闭游戏或模拟器。先停止截图监控，避免设备消失
         # 被误判为断链并触发自动恢复，重新拉起刚关闭的模拟器。
         retry_monitor.stop()
@@ -454,6 +369,9 @@ class my_script_task(QThread):
         # 初始化，构造函数
         super().__init__()
         self.mutex = QMutex()
+        self.exception = None
+        from module.macos.control import reset
+        reset()
 
     def run(self):
         self.mutex.lock()
@@ -484,10 +402,10 @@ class my_script_task(QThread):
         mediator.script_finished.emit()
 
     def terminate(self):
+        from module.macos.control import cancel
+        cancel()
+        self.requestInterruption()
         retry_monitor.stop()
-        super().terminate()
-        # TerminateThread 不会释放被杀线程持有的 RLock,换新锁防止后续任务取锁永久阻塞
-        auto.reset_safety_locks()
 
     """def stop(self):
         self.running=False

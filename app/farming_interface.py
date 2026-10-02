@@ -29,7 +29,6 @@ from app.page_card import (
     PageGetPrize,
     PageLunacyToEnkephalin,
     PageMirror,
-    PageSetWindows,
 )
 from app.team_setting_card import TeamSettingCard
 from module.after_completion_types import (
@@ -375,6 +374,10 @@ class FarmingInterface(QWidget):
 
     def _listener_start(self):
         self._listener_stop()
+        from module.macos.window import permissions
+        if not permissions()['accessibility']:
+            log.warning('辅助功能权限未开启；授权并重启后才能使用全局快捷键')
+            return
         try:
             self.listener = ExactGlobalHotKeys(
                 {
@@ -424,14 +427,6 @@ class FarmingInterfaceLeft(QWidget):
         self.setting_box.setLayout(self.setting_layout)
 
     def __init_card(self):
-        self.set_windows = CheckBoxWithButton(
-            "set_windows",
-            QT_TRANSLATE_NOOP("CheckBoxWithButton", "窗口设置"),
-            None,
-            "set_windows",
-        )
-        self.set_windows.set_box_enabled(False)
-
         self.daily_task = CheckBoxWithButton(
             "daily_task",
             QT_TRANSLATE_NOOP("CheckBoxWithButton", "日常任务"),
@@ -491,7 +486,6 @@ class FarmingInterfaceLeft(QWidget):
         self.pause_resume_button.button.setFont(font)
 
     def __init_layout(self):
-        self.setting_options.addWidget(self.set_windows)
         self.setting_options.addWidget(self.daily_task)
         self.setting_options.addWidget(self.get_reward)
         self.setting_options.addWidget(self.buy_enkephalin)
@@ -506,8 +500,8 @@ class FarmingInterfaceLeft(QWidget):
         self.setting_layout.addLayout(self.hbox_button)
 
         self.hbox_layout.addWidget(self.setting_box)
-        self.hbox_layout.addWidget(self.then)
-        self.hbox_layout.addWidget(self.after_completion_selector)
+        self.then.hide()
+        self.after_completion_selector.hide()
         self.action_button_layout = QHBoxLayout()
         self.action_button_layout.addWidget(self.link_start_button)
         self.action_button_layout.addWidget(self.pause_resume_button)
@@ -515,21 +509,16 @@ class FarmingInterfaceLeft(QWidget):
 
     @staticmethod
     def select_all_function():
-        for check_box in task_check_box[:5]:
+        for check_box in task_check_box[:4]:
             check_box.setChecked(True)
 
     @staticmethod
     def clear_all_function():
-        for check_box in task_check_box[1:5]:
+        for check_box in task_check_box[:4]:
             check_box.setChecked(False)
 
     def stop_AALC(self):
-        log.debug("即将关闭AALC")
-        try:
-            self.after_completion_selector._hide_editor()
-        except Exception:
-            pass
-        sys.exit(0)
+        self.window().close()
 
     def check_setting(self):
         # 检测是否有未保存的镜牢队伍设置
@@ -605,57 +594,24 @@ class FarmingInterfaceLeft(QWidget):
             return False
 
     def start_and_stop_tasks(self):
-        # 设置按下启动与停止按钮时，其他模块的启用与停用
-        current_text = self.link_start_button.get_text()
-        if current_text == "Link Start!":
-            # 启动前检查设置，防呆
-            if self.check_setting() is False:
-                return
-            self.link_start_button.set_text("S t o p !")
-            self.sync_pause_resume_button()
-            self._disable_setting(self.parent())
-            self.create_and_start_script()
-        else:
-            if cfg.set_reduce_miscontact and cfg.simulator is False:
-                # 手动停止时仍需恢复游戏窗口，但这里不再要求抢前台。
-                screen.reset_win(activate=False)
-            else:
-                if cfg.simulator_type == 0:
-                    from module.automation.input_handlers.simulator.mumu_control import (
-                        MumuControl,
-                    )
-
-                    while True:
-                        try:
-                            MumuControl.clean_connect()
-                            break
-                        except Exception:
-                            continue
-                else:
-                    from module.automation.input_handlers.simulator.simulator_control import (
-                        SimulatorControl,
-                    )
-
-                    while True:
-                        try:
-                            SimulatorControl.clean_connect()
-                            break
-                        except Exception:
-                            continue
-            self.link_start_button.set_text("Link Start!")
-            self._enable_setting(self.parent())
-            self.reset_pause_resume_button()
-            mediator.refresh_teams_order.emit()
-            # 检查线程是否仍在运行，如果仍在运行则执行清理，否则跳过（因为脚本已自行清理）
-            thread_was_running = self.my_script is not None and self.my_script.isRunning()
+        if self.my_script is not None and self.my_script.isRunning():
             self.stop_script()
-            if thread_was_running:
-                auto.clear_img_cache()
-            mediator.mirror_bar_kill_signal.emit()
+            self.link_start_button.set_text("正在停止…")
+            self.link_start_button.setEnabled(False)
+            return
+        if self.check_setting() is False:
+            return
+        self.link_start_button.set_text("S t o p !")
+        self.sync_pause_resume_button()
+        self._disable_setting(self.parent())
+        self.create_and_start_script()
 
     def _on_script_finished(self):
         # 自然结束只做 UI 收尾；不要复用“手动停止”入口，否则会重复触发窗口清理。
-        log.debug("脚本自然结束，执行 UI 收尾，不再重复重置游戏窗口")
+        self.link_start_button.setEnabled(True)
+        if self.my_script is not None and getattr(self.my_script, 'exception', None):
+            log.error(str(self.my_script.exception))
+        log.debug("脚本结束，恢复界面")
         self.link_start_button.set_text("Link Start!")
         self._enable_setting(self.parent())
         self.reset_pause_resume_button()
@@ -719,6 +675,7 @@ class FarmingInterfaceLeft(QWidget):
             self.my_script = my_script_task()
             # 设置脚本线程为守护(当程序被关闭，一起停止)
             self.my_script.daemon = True
+            self.my_script.finished.connect(self._on_script_finished)
             self.my_script.start()
         except Exception as e:
             log.error(f"启动脚本失败: {e}")
@@ -770,10 +727,8 @@ class FarmingInterfaceLeft(QWidget):
         mediator.kill_signal.connect(self.stop_AALC)
         # finished_signal 目前用于命令行延迟触发开始/停止按钮逻辑。
         mediator.finished_signal.connect(self.start_and_stop_tasks)
-        mediator.script_finished.connect(self._on_script_finished)
 
     def retranslateUi(self):
-        self.set_windows.retranslateUi()
         self.daily_task.retranslateUi()
         self.get_reward.retranslateUi()
         self.buy_enkephalin.retranslateUi()
@@ -808,14 +763,12 @@ class FarmingInterfaceCenter(QWidget):
         self.setting_page = PopUpAniStackedWidget(self)
 
     def __init_card(self):
-        self.set_windows = PageSetWindows(self)
         self.daily_task = PageDailyTask(self)
         self.get_reward = PageGetPrize(self)
         self.buy_enkephalin = PageLunacyToEnkephalin(self)
         self.mirror = PageMirror(self)
 
     def __init_layout(self):
-        self.setting_page.addWidget(self.set_windows)
         self.setting_page.addWidget(self.daily_task)
         self.setting_page.addWidget(self.get_reward)
         self.setting_page.addWidget(self.buy_enkephalin)
@@ -824,8 +777,9 @@ class FarmingInterfaceCenter(QWidget):
         # self.setting_box.setLayout(self.vbox)
 
     def __init_setting(self):
-        self.setting_page.setCurrentIndex(cfg.get_value("default_page"))
-        list(toggle_button_group.items())[cfg.get_value("default_page")][1].setChecked(True)
+        index = min(3, max(0, cfg.get_value("default_page")))
+        self.setting_page.setCurrentIndex(index)
+        list(toggle_button_group.items())[index][1].setChecked(True)
 
     def switch_to_page(self, target: str):
         try:
@@ -841,7 +795,6 @@ class FarmingInterfaceCenter(QWidget):
         mediator.switch_page.connect(self.switch_to_page)
 
     def retranslateUi(self):
-        self.set_windows.retranslateUi()
         self.daily_task.retranslateUi()
         self.get_reward.retranslateUi()
         self.buy_enkephalin.retranslateUi()

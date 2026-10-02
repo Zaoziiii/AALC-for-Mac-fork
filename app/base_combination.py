@@ -67,8 +67,6 @@ from app.observe_ego_gift_selection import (
 from module.font_manager import font_manager
 from module.logger import log
 from module.my_error.my_error import settingsTypeError
-from module.update.check_update import check_update
-from utils.utils import decrypt_string, encrypt_string
 
 
 class CheckBoxWithButton(QFrame):
@@ -777,59 +775,7 @@ class BasePrimaryPushSettingCard(PrimaryPushSettingCard):
         self.button.setText(self.tr(self.text))
 
 
-class PushSettingCardMirrorchyan(SettingCard):
-    def __init__(
-        self,
-        text,
-        icon: Union[str, QIcon, FluentIconBase],
-        title,
-        update_callback,
-        config_name,
-        parent: QObject | None = None,
-    ):
-        self.config_value = decrypt_string(str(cfg.get_value(config_name)))
-        self.update_callback = update_callback
-        super().__init__(icon, title, "", parent)
 
-        self.title = title
-        self.button_text = text
-        self.config_name = config_name
-
-        self.button2 = QPushButton("获取 CDK", self)
-        self.button2.setObjectName("primaryButton")
-        self.hBoxLayout.addWidget(self.button2, 0, Qt.AlignRight)
-        self.hBoxLayout.addSpacing(10)
-        self.button2.clicked.connect(self.__onclicked2)
-
-        self.button = QPushButton(text, self)
-        self.hBoxLayout.addWidget(self.button, 0, Qt.AlignRight)
-        self.hBoxLayout.addSpacing(16)
-        self.button.clicked.connect(self.__onclicked)
-
-    def __onclicked(self):
-        """保存 Mirror 酱 CDK，并立即触发一次更新检查刷新结果。"""
-        message_box = MessageBoxEdit(self.tr(self.title), self.config_value, self.window())
-        if message_box.exec():
-            # 先写回新的 CDK 配置，再主动触发更新检查，便于立即验证下载源状态。
-            base64_cdk = encrypt_string(message_box.getText())
-            cfg.set_value(self.config_name, base64_cdk)
-            self.contentLabel.setText(message_box.getText())
-            self.config_value = message_box.getText()
-            parent = self._find_parent(self)
-            check_update(parent, flag=True)
-
-    def __onclicked2(self):
-        QDesktopServices.openUrl(QUrl("https://mirrorchyan.com/?source=aalc_app"))
-
-    def _find_parent(self, widget):
-        while widget.parent() is not None:
-            widget = widget.parent()
-        return widget
-
-    def retranslateUi(self):
-        self.button2.setText(self.tr("获取 CDK"))
-        self.titleLabel.setText(self.tr(self.title))
-        self.button.setText(self.tr(self.button_text))
 
 
 class SwitchSettingCard(SettingCard):
@@ -1155,97 +1101,7 @@ class AutoDailyView(FlyoutViewBase):
         self.box_lock.retranslateUi()
 
 
-class DailySettingCard(SwitchSettingCard):
-    def __init__(
-        self,
-        icon: Union[str, QIcon, FluentIconBase],
-        title,
-        content=None,
-        config_name: str = None,
-        parent=None,
-    ):
-        super().__init__(icon, title, content, config_name, parent)
-        self.config_name = config_name
-        self.autodaily_timepicker = TimePicker()
-        if self.config_name[-1] in ["2", "3", "4"]:
-            self.value_name = "autodaily_time" + self.config_name[-1]
-        else:
-            self.value_name = "autodaily_time"
-        self.button_text = QT_TRANSLATE_NOOP("DailySettingCard", "设置任务项")
 
-        autodaily_time = cfg.get_value(self.value_name) or "00:00"
-        autodaily_qtime = QTime.fromString(autodaily_time, "HH:mm")
-        if not autodaily_qtime.isValid():
-            autodaily_qtime = QTime(0, 0)
-        self.autodaily_timepicker.setTime(autodaily_qtime)
-        self.button = PushButton(self.button_text, self)
-        current_count = self.hBoxLayout.count()
-        self.hBoxLayout.insertWidget(current_count - 2, self.autodaily_timepicker)
-        self.hBoxLayout.insertSpacing(current_count - 1, 20)
-        current_count = self.hBoxLayout.count()
-        self.hBoxLayout.insertWidget(current_count - 2, self.button)
-        self.hBoxLayout.insertSpacing(current_count - 1, 20)
-        self.autodaily_timepicker.setDisabled(not self.switchButton.isChecked())
-        self.autodaily_timepicker.timeChanged.connect(self.__onAutoDailyTimepickerChanged)
-        self.button.clicked.connect(self.__show_view)
-        self.__connect_signal()
-        self.retranslateUi()
-
-    def __show_view(self):
-        self._popup = PopupTeachingTip.make(
-            target=self.button,
-            view=AutoDailyView(self),
-            tailPosition=TeachingTipTailPosition.RIGHT,
-            duration=-1,
-            parent=self,
-        )
-
-    def __connect_signal(self):
-        self.switchButton.checkedChanged.connect(self.__onAutoDailyCheckboxChanged)
-        self.autodaily_timepicker.timeChanged.connect(self.__onAutoDailyTimepickerChanged)
-
-    @staticmethod
-    def __autodaily_taskname() -> str:
-        return "AALC Daily Task"
-
-    def __onAutoDailyCheckboxChanged(self, isChecked):
-        from utils.schedule_helper import ScheduleHelper
-
-        helper = ScheduleHelper()
-        task_name = self.__autodaily_taskname()
-        if self.config_name[-1] in ["2", "3", "4"]:
-            task_name += self.config_name[-1]
-
-        cfg.set_value(self.config_name, isChecked)
-        if isChecked:
-            self.autodaily_timepicker.setDisabled(False)
-            time = self.autodaily_timepicker.getTime()
-            helper.register_daily_task(
-                task_name,
-                f"start --exit {self.config_name}",
-                time.hour(),
-                time.minute(),
-            )
-        else:
-            self.autodaily_timepicker.setDisabled(True)
-            helper.unregister_task(task_name)
-
-    def __onAutoDailyTimepickerChanged(self, time: QTime):
-        from utils.schedule_helper import ScheduleHelper
-
-        helper = ScheduleHelper()
-        task_name = self.__autodaily_taskname()
-        if self.config_name[-1] in ["2", "3", "4"]:
-            task_name += self.config_name[-1]
-
-        cfg.set_value(self.value_name, time.toString("HH:mm"))
-        helper.unregister_task(task_name)
-        helper.register_daily_task(task_name, f"start --exit {self.config_name}", time.hour(), time.minute())
-
-    def retranslateUi(self):
-        self.button.setText(self.tr(self.button_text))
-        self.titleLabel.setText(self.tr(self.title))
-        self.contentLabel.setText(self.tr(self.content))
 
 
 class HotkeySettingCard(BasePushSettingCard):

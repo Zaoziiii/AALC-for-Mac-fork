@@ -1,3 +1,4 @@
+from tasks.base.map_state import is_mirror_map
 import random
 import re
 import time
@@ -31,6 +32,16 @@ class DefenseForSoloState:
     def consume_turn(self) -> None:
         if self.remaining_turns > 0:
             self.remaining_turns -= 1
+
+
+def battle_input_ready():
+    """The right gear only shows while the game waits for skill input.
+
+    win_rate_card is a thin transparent strip that drops to 0.66-0.68 over
+    bright arenas; the gear scores 0.98 there and at most 0.58 elsewhere,
+    including during clash animations.
+    """
+    return auto.find_element("battle/gear_right.png", model="retina", threshold=0.9) is not None
 
 
 class Battle:
@@ -253,7 +264,7 @@ class Battle:
 
             total_count += 1
 
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            if is_mirror_map():
                 if infinite_battle:
                     continue
                 return False
@@ -321,7 +332,7 @@ class Battle:
                             auto.mouse_to_blank()
                             if auto.take_screenshot() is None:
                                 continue
-                            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                            if is_mirror_map():
                                 return False
                             if auto.click_element("battle/give_up_assets.png"):
                                 sleep(2)
@@ -379,6 +390,11 @@ class Battle:
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
                     continue
+            if battle_input_ready():
+                perform_battle_operation()
+                chance = self.INIT_CHANCE
+                waiting = self._update_wait_time(waiting, False, total_count)
+                continue
             if chance < 5:
                 if not infinite_battle:
                     auto.mouse_to_blank()
@@ -510,7 +526,7 @@ class Battle:
                     continue
                 break
 
-            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+            if is_mirror_map():
                 if infinite_battle:
                     continue
                 break

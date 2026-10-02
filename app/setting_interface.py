@@ -26,11 +26,9 @@ from app.base_combination import (
     BasePushSettingCard,
     BaseSettingCardGroup,
     ComboBoxSettingCard,
-    DailySettingCard,
     HotkeySettingCard,
     PushSettingCardChance,
     PushSettingCardDate,
-    PushSettingCardMirrorchyan,
     PushSettingCardText,
     SwitchSettingCard,
 )
@@ -41,7 +39,6 @@ from app.theme_pack_setting_interface import ThemePackSettingDialog
 from app.widget.setting_nav import SettingNav
 from module.config import cfg, theme_list
 from utils.adb_endpoint import normalize_adb_host
-from utils.schedule_helper import ScheduleHelper
 
 
 class SettingInterface(QWidget):
@@ -59,7 +56,17 @@ class SettingInterface(QWidget):
         self.__init_widget()
         self.__init_card()
         self.__initLayout()
-        self.__init_nav()
+        self.setting_nav.add_nav_items([
+            ("game", "游戏设置", self.game_setting_group),
+            ("theme_pack", "镜牢主题包", self.theme_pack_group),
+            ("game_path", "启动与显示", self.game_path_group),
+            ("personal", "个性化", self.personal_group),
+            ("logs", "日志设置", self.logs_group),
+            ("about", "关于", self.about_group),
+            ("experimental", "实验性", self.experimental_group),
+        ])
+        self.setting_nav.navClicked.connect(self.__on_nav_clicked)
+        self.content_scroll.verticalScrollBar().valueChanged.connect(self.__on_content_scrolled)
 
         # 再应用主题样式并注册主题切换监听。
         self._apply_theme_style()
@@ -153,18 +160,8 @@ class SettingInterface(QWidget):
             "win_input_type",
             FIF.CONNECT,
             QT_TRANSLATE_NOOP("ComboBoxSettingCard", "操控方式"),
-            "  ",
+            "后台模式允许遮挡游戏窗口，但不能最小化或移动、缩放窗口。镜牢自动使用方向键，按可见路线逐步寻路，不拖动地图；不支持后台滚轮。更改后下次开始任务生效。",
             texts=win_input_type_options,
-            parent=self.game_setting_group,
-        )
-        self.memory_protection = SwitchSettingCard(
-            FIF.FRIGID,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "内存占用保护"),
-            QT_TRANSLATE_NOOP(
-                "SwitchSettingCard",
-                "自动检测电脑<font color=red>总内存占用</font>，超过90%执行内存清理，防止崩溃，可能略微影响脚本速度",
-            ),
-            "memory_protection",
             parent=self.game_setting_group,
         )
         self.screenshot_benchmark_card = BasePrimaryPushSettingCard(
@@ -175,118 +172,9 @@ class SettingInterface(QWidget):
             parent=self.game_setting_group,
         )
 
-        self.simulator_setting_group = BaseSettingCardGroup(
-            QT_TRANSLATE_NOOP("BaseSettingCardGroup", "模拟器设置"), self.scroll_widget
-        )
-        self.simulator_setting_card = SwitchSettingCard(
-            FIF.MINIMIZE,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "使用模拟器"),
-            "",
-            "simulator",
-            parent=self.simulator_setting_group,
-        )
-        self.simulator_type_setting_card = ComboBoxSettingCard(
-            "simulator_type",
-            FIF.APPLICATION,
-            QT_TRANSLATE_NOOP("ComboBoxSettingCard", "模拟器连接配置"),
-            QT_TRANSLATE_NOOP("ComboBoxSettingCard", "选择使用的模拟器"),
-            texts={
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "MuMu模拟器(推荐)"): 0,
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "BlueStacks 5"): 1,
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "其他模拟器"): 10,
-            },
-            parent=self.simulator_setting_group,
-        )
-        self.bluestacks_instance_setting_card = PushSettingCardText(
-            QT_TRANSLATE_NOOP("PushSettingCardText", "修改"),
-            FIF.APPLICATION,
-            QT_TRANSLATE_NOOP("PushSettingCardText", "蓝叠实例名"),
-            config_name="bluestacks_instance_name",
-            content=QT_TRANSLATE_NOOP(
-                "PushSettingCardText",
-                "可留空自动选择；多开时填写内部实例名，例如 Pie64",
-            ),
-            parent=self.simulator_setting_group,
-        )
-        self.simulator_host_setting_card = PushSettingCardText(
-            QT_TRANSLATE_NOOP("PushSettingCardText", "修改"),
-            FIF.CONNECT,
-            QT_TRANSLATE_NOOP("PushSettingCardText", "模拟器主机地址"),
-            config_name="simulator_host",
-            content=QT_TRANSLATE_NOOP(
-                "PushSettingCardText",
-                "模拟器的 ADB 主机名/IP，除非你知道你在做什么，否则保持默认即可",
-            ),
-            validator=normalize_adb_host,
-            parent=self.simulator_setting_group,
-        )
-        self.simulator_port_chance_card = PushSettingCardChance(
-            QT_TRANSLATE_NOOP("PushSettingCardChance", "修改"),
-            FIF.TRAIN,
-            QT_TRANSLATE_NOOP("PushSettingCardChance", "使用的模拟器端口号"),
-            config_name="simulator_port",
-            max_value=65535,
-            content="",
-            parent=self.simulator_setting_group,
-        )
-        self.start_emulator_timeout_chance_card = PushSettingCardChance(
-            QT_TRANSLATE_NOOP("PushSettingCardChance", "修改"),
-            FIF.TRAIN,
-            QT_TRANSLATE_NOOP("PushSettingCardChance", "MuMu/蓝叠启动模拟器超时时间(秒)"),
-            config_name="start_emulator_timeout",
-            max_value=3600,
-            content="",
-            parent=self.simulator_setting_group,
-        )
 
         self.game_path_group = BaseSettingCardGroup(
             QT_TRANSLATE_NOOP("BaseSettingCardGroup", "启动游戏"), self.scroll_widget
-        )
-        self.game_path_card = BasePushSettingCard(
-            QT_TRANSLATE_NOOP("BasePushSettingCard", "修改"),
-            FIF.FOLDER,
-            QT_TRANSLATE_NOOP("BasePushSettingCard", "游戏路径"),
-            cfg.game_path,
-            parent=self.game_path_group,
-        )
-        self.autostart_card = SwitchSettingCard(
-            FIF.POWER_BUTTON,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "开机时启动 AALC"),
-            "",
-            "autostart",
-            parent=self.game_path_group,
-        )
-        self.autodaily_group = BaseSettingCardGroup(
-            QT_TRANSLATE_NOOP("BaseSettingCardGroup", "定时执行 AALC"),
-            self.scroll_widget,
-        )
-        self.autodaily_card = DailySettingCard(
-            FIF.HISTORY,
-            QT_TRANSLATE_NOOP("DailySettingCard", "定时执行 1"),
-            QT_TRANSLATE_NOOP("DailySettingCard", "如果计算机处于启动状态，将在指定时间执行 AALC 任务"),
-            "autodaily",
-            parent=self.autodaily_group,
-        )
-        self.autodaily_card_2 = DailySettingCard(
-            FIF.HISTORY,
-            QT_TRANSLATE_NOOP("DailySettingCard", "定时执行 2"),
-            None,
-            "autodaily2",
-            parent=self.autodaily_group,
-        )
-        self.autodaily_card_3 = DailySettingCard(
-            FIF.HISTORY,
-            QT_TRANSLATE_NOOP("DailySettingCard", "定时执行 3"),
-            None,
-            "autodaily3",
-            parent=self.autodaily_group,
-        )
-        self.autodaily_card_4 = DailySettingCard(
-            FIF.HISTORY,
-            QT_TRANSLATE_NOOP("DailySettingCard", "定时执行 4"),
-            None,
-            "autodaily4",
-            parent=self.autodaily_group,
         )
         self.minimize_to_tray_card = SwitchSettingCard(
             FIF.REMOVE,
@@ -352,60 +240,7 @@ class SettingInterface(QWidget):
             parent=self.personal_group,
         )
 
-        self.update_group = BaseSettingCardGroup(
-            QT_TRANSLATE_NOOP("BaseSettingCardGroup", "更新设置"), self.scroll_widget
-        )
-        self.check_update_card = SwitchSettingCard(
-            FIF.SYNC,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "加入预览版更新渠道"),
-            "",
-            "update_prerelease_enable",
-            parent=self.update_group,
-        )
-        self.update_source_card = ComboBoxSettingCard(
-            "update_source",
-            FIF.CLOUD_DOWNLOAD,
-            QT_TRANSLATE_NOOP("ComboBoxSettingCard", "更新源"),
-            QT_TRANSLATE_NOOP("ComboBoxSettingCard", "选择更新源"),
-            texts={
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "Github源"): "GitHub",
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "Mirror 酱"): "MirrorChyan",
-            },
-            parent=self.update_group,
-        )
-        self.mirrorchyan_cdk_card = PushSettingCardMirrorchyan(
-            QT_TRANSLATE_NOOP("PushSettingCardMirrorchyan", "修改"),
-            FIF.BOOK_SHELF,
-            QT_TRANSLATE_NOOP("PushSettingCardMirrorchyan", "Mirror 酱 CDK"),
-            self.parent(),
-            "mirrorchyan_cdk",
-            parent=self.update_group,
-        )
         # 资源同步相关卡片集中放在更新设置分组下，便于用户理解它与软件更新的关系。
-        self.image_resource_sync_card = SwitchSettingCard(
-            FIF.SCROLL,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "自动更新图片资源"),
-            "",
-            "image_resource_sync",
-            parent=self.update_group,
-        )
-        self.image_resource_source_card = ComboBoxSettingCard(
-            "image_resource_source",
-            FIF.DOWNLOAD,
-            QT_TRANSLATE_NOOP("ComboBoxSettingCard", "图片更新源"),
-            texts={
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "自动"): "Auto",
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "Gitee"): "Gitee",
-                QT_TRANSLATE_NOOP("ComboBoxSettingCard", "GitHub"): "GitHub",
-            },
-            parent=self.update_group,
-        )
-        self.check_image_resource_update_card = BasePrimaryPushSettingCard(
-            QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "立即检查"),
-            FIF.UPDATE,
-            QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "手动检查资源更新"),
-            parent=self.update_group,
-        )
 
         # 最后一组：创建日志、关于和实验性功能等辅助设置卡片。
         self.logs_group = BaseSettingCardGroup(
@@ -467,16 +302,6 @@ class SettingInterface(QWidget):
             config_name="experimental_keep_screen_awake",
             parent=self.experimental_group,
         )
-        self.hdr_warning_card = SwitchSettingCard(
-            FIF.BRIGHTNESS,
-            QT_TRANSLATE_NOOP("SwitchSettingCard", "HDR 检测警告"),
-            QT_TRANSLATE_NOOP(
-                "SwitchSettingCard",
-                "任务启动时检测游戏所在显示器的 HDR 状态；开启 HDR 时提示可能发生图像识别问题",
-            ),
-            config_name="experimental_hdr_warning",
-            parent=self.experimental_group,
-        )
 
     def _on_hard_mirror_chance_confirm(self, _: int) -> None:
         """手动调整困难模式次数后，同步刷新自动切换时间戳。
@@ -500,38 +325,19 @@ class SettingInterface(QWidget):
         self.game_setting_group.addSettingCard(self.last_auto_hard_mirror_card)
         self.game_setting_group.addSettingCard(self.hard_mirror_chance_card)
         self.game_setting_group.addSettingCard(self.win_input_type_card)
-        self.game_setting_group.addSettingCard(self.memory_protection)
         self.game_setting_group.addSettingCard(self.screenshot_benchmark_card)
 
         self.theme_pack_group.addSettingCard(self.theme_pack_card)
 
-        self.simulator_setting_group.addSettingCard(self.simulator_setting_card)
-        self.simulator_setting_group.addSettingCard(self.simulator_type_setting_card)
-        self.simulator_setting_group.addSettingCard(self.bluestacks_instance_setting_card)
-        self.simulator_setting_group.addSettingCard(self.simulator_host_setting_card)
-        self.simulator_setting_group.addSettingCard(self.simulator_port_chance_card)
-        self.simulator_setting_group.addSettingCard(self.start_emulator_timeout_chance_card)
 
-        self.game_path_group.addSettingCard(self.game_path_card)
-        self.game_path_group.addSettingCard(self.autostart_card)
         self.game_path_group.addSettingCard(self.minimize_to_tray_card)
 
-        self.autodaily_group.addSettingCard(self.autodaily_card)
-        self.autodaily_group.addSettingCard(self.autodaily_card_2)
-        self.autodaily_group.addSettingCard(self.autodaily_card_3)
-        self.autodaily_group.addSettingCard(self.autodaily_card_4)
 
         self.personal_group.addSettingCard(self.language_card)
         self.personal_group.addSettingCard(self.theme_card)
         self.personal_group.addSettingCard(self.zoom_card)
         self.personal_group.addSettingCard(self.hotkey_card)
 
-        self.update_group.addSettingCard(self.check_update_card)
-        self.update_group.addSettingCard(self.update_source_card)
-        self.update_group.addSettingCard(self.mirrorchyan_cdk_card)
-        self.update_group.addSettingCard(self.image_resource_sync_card)
-        self.update_group.addSettingCard(self.image_resource_source_card)
-        self.update_group.addSettingCard(self.check_image_resource_update_card)
 
         self.logs_group.addSettingCard(self.open_logs_card)
 
@@ -539,54 +345,18 @@ class SettingInterface(QWidget):
         self.about_group.addSettingCard(self.discord_group_card)
         self.about_group.addSettingCard(self.feedback_card)
 
-        self.experimental_group.addSettingCard(self.hdr_warning_card)
         self.experimental_group.addSettingCard(self.keep_screen_awake_card)
 
         # 再把各个分组按页面顺序加入主滚动布局。
         self.expand_layout.addWidget(self.game_setting_group)
         self.expand_layout.addWidget(self.theme_pack_group)
-        self.expand_layout.addWidget(self.simulator_setting_group)
         self.expand_layout.addWidget(self.game_path_group)
-        self.expand_layout.addWidget(self.autodaily_group)
         self.expand_layout.addWidget(self.personal_group)
-        self.expand_layout.addWidget(self.update_group)
         self.expand_layout.addWidget(self.logs_group)
         self.expand_layout.addWidget(self.about_group)
         self.expand_layout.addWidget(self.experimental_group)
 
-    def __init_nav(self):
-        """初始化左侧导航栏组件"""
-        # ordered navigation items: (key, title, widget)
-        nav_items = [
-            ("game", QT_TRANSLATE_NOOP("Nav", "游戏设置"), self.game_setting_group),
-            (
-                "theme_pack",
-                QT_TRANSLATE_NOOP("Nav", "镜牢主题包"),
-                self.theme_pack_group,
-            ),
-            (
-                "simulator",
-                QT_TRANSLATE_NOOP("Nav", "模拟器设置"),
-                self.simulator_setting_group,
-            ),
-            ("game_path", QT_TRANSLATE_NOOP("Nav", "启动游戏"), self.game_path_group),
-            ("autodaily", QT_TRANSLATE_NOOP("Nav", "定时执行"), self.autodaily_group),
-            ("personal", QT_TRANSLATE_NOOP("Nav", "个性化"), self.personal_group),
-            ("update", QT_TRANSLATE_NOOP("Nav", "更新设置"), self.update_group),
-            ("logs", QT_TRANSLATE_NOOP("Nav", "日志设置"), self.logs_group),
-            ("about", QT_TRANSLATE_NOOP("Nav", "关于"), self.about_group),
-            (
-                "experimental",
-                QT_TRANSLATE_NOOP("Nav", "实验性"),
-                self.experimental_group,
-            ),
-        ]
 
-        self.setting_nav.add_nav_items(nav_items)
-
-        # connect scroll sync
-        self.setting_nav.navClicked.connect(self.__on_nav_clicked)
-        self.content_scroll.verticalScrollBar().valueChanged.connect(self.__on_content_scrolled)
 
     def __on_nav_clicked(self, key: str, widget):
         """导航栏点击，滚动到指定内容"""
@@ -607,20 +377,13 @@ class SettingInterface(QWidget):
     def __connect_signal(self):
         """连接设置页卡片与处理函数之间的信号。"""
         # 先连接按钮点击类交互，包括图片资源手动检查入口。
-        self.game_path_card.clicked.connect(self.__onGamePathCardClicked)
         self.open_logs_card.clicked.connect(self.__onOpenLogsCardClicked)
         self.screenshot_benchmark_card.clicked.connect(self.__onScreenshotBenchmarkCardClicked)
         self.theme_pack_card.clicked.connect(self.__onThemePackCardClicked)
-        self.check_image_resource_update_card.clicked.connect(self.__onCheckImageResourceUpdateClicked)
 
         # 再连接配置变更类交互，保证界面动作能同步刷新配置和主题。
         self.zoom_card.valueChanged.connect(self.__onZoomCardValueChanged)
-        self.win_input_type_card.valueChanged.connect(self.__onWinInputTypeChanged)
-        self.__onWinInputTypeChanged()
-        self.autostart_card.switchButton.checkedChanged.connect(self.__onAutostartCardChanged)
         self.theme_card.valueChanged.connect(self.__onThemeCardChanged)
-        self.simulator_type_setting_card.valueChanged.connect(self.__onSimulatorTypeChanged)
-        self.__onSimulatorTypeChanged()
 
         # 最后连接外链卡片，统一复用打开 URL 的回调工厂。
         self.github_card.clicked.connect(self.__openUrl("https://github.com/KIYI671/AhabAssistantLimbusCompany"))
@@ -629,21 +392,14 @@ class SettingInterface(QWidget):
             self.__openUrl("https://github.com/KIYI671/AhabAssistantLimbusCompany/issues")
         )
 
-    def __onGamePathCardClicked(self):
-        game_path, _ = QFileDialog.getOpenFileName(self, "选择游戏路径", "", "Game Executable (LimbusCompany.exe)")
-        if not game_path or cfg.game_path == game_path or not game_path.endswith("LimbusCompany.exe"):
-            return
-        cfg.set_value("game_path", game_path)
-        self.game_path_card.setContent(game_path)
 
-    def __onCheckImageResourceUpdateClicked(self) -> None:
-        """将手动检查图片资源的请求上抛给主窗口处理。"""
-        self.manualResourceSyncRequested.emit()
+
+
 
     def __onOpenLogsCardClicked(self):
         import os
 
-        os.startfile(os.path.abspath("./logs"))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath("./logs")))
 
     def __onScreenshotBenchmarkCardClicked(self):
         from module.automation.screenshot import ScreenShot
@@ -673,33 +429,9 @@ class SettingInterface(QWidget):
                 parent=self,
             )
 
-    def __onWinInputTypeChanged(self):
-        input_type = cfg.get_value("win_input_type")
-        if input_type == "background":
-            content = QT_TRANSLATE_NOOP(
-                "ComboBoxSettingCard",
-                "后台模式，游戏可以在后台运行，但是<font color=red>游戏不能处于最小化状态!!</font>",
-            )
-            cfg.set_value("background_click", True)
-        elif input_type == "foreground":
-            content = QT_TRANSLATE_NOOP("ComboBoxSettingCard", "前台模式，游戏必须在显示在最上方")
-            cfg.set_value("background_click", False)
-        elif input_type == "window_move":
-            content = QT_TRANSLATE_NOOP(
-                "ComboBoxSettingCard",
-                "基于移动窗口的后台模式，有效规避了后台模式需要移动鼠标的情况，<br/>但是性能和稳定性较差，<font color=red>不推荐长时间无人使用</font>",
-            )
-            cfg.set_value("background_click", True)
-        else:
-            content = QT_TRANSLATE_NOOP("ComboBoxSettingCard", "未知的输入模式，发生了错误")
 
-        self.win_input_type_card.content = content
-        self.win_input_type_card.setContent(content)
-        self.win_input_type_card.retranslateUi()
 
-    def __onSimulatorTypeChanged(self):
-        self.bluestacks_instance_setting_card.setVisible(cfg.get_value("simulator_type") == 1)
-        self.simulator_setting_group.adjustSize()
+
 
     def __onZoomCardValueChanged(self):
         bar = BaseInfoBar.success(
@@ -712,13 +444,7 @@ class SettingInterface(QWidget):
             parent=self,
         )
 
-    def __onAutostartCardChanged(self, checked: bool):
-        TASK_NAME = "AALC Autostart"
-        helper = ScheduleHelper()
-        if checked:
-            helper.register_onstart_task(TASK_NAME, "")
-        else:
-            helper.unregister_task(TASK_NAME)
+
 
     def __openUrl(self, url):
         return lambda: QDesktopServices.openUrl(QUrl(url))
@@ -742,37 +468,15 @@ class SettingInterface(QWidget):
         self.hard_mirror_chance_card.retranslateUi()
         self.win_input_type_card.retranslateUi()
         self.minimize_to_tray_card.retranslateUi()
-        self.memory_protection.retranslateUi()
         self.screenshot_benchmark_card.retranslateUi()
         self.theme_pack_group.retranslateUi()
         self.theme_pack_card.retranslateUi()
-        self.simulator_setting_group.retranslateUi()
-        self.simulator_setting_card.retranslateUi()
-        self.simulator_type_setting_card.retranslateUi()
-        self.bluestacks_instance_setting_card.retranslateUi()
-        self.simulator_host_setting_card.retranslateUi()
-        self.simulator_port_chance_card.retranslateUi()
-        self.start_emulator_timeout_chance_card.retranslateUi()
-        self.game_path_card.retranslateUi()
         self.game_path_group.retranslateUi()
-        self.autodaily_group.retranslateUi()
         self.personal_group.retranslateUi()
         self.language_card.retranslateUi()
         self.theme_card.retranslateUi()
         self.zoom_card.retranslateUi()
         self.hotkey_card.retranslateUi()
-        self.autostart_card.retranslateUi()
-        self.autodaily_card.retranslateUi()
-        self.autodaily_card_2.retranslateUi()
-        self.autodaily_card_3.retranslateUi()
-        self.autodaily_card_4.retranslateUi()
-        self.update_group.retranslateUi()
-        self.update_source_card.retranslateUi()
-        self.check_update_card.retranslateUi()
-        self.mirrorchyan_cdk_card.retranslateUi()
-        self.image_resource_sync_card.retranslateUi()
-        self.image_resource_source_card.retranslateUi()
-        self.check_image_resource_update_card.retranslateUi()
         self.logs_group.retranslateUi()
         self.about_group.retranslateUi()
         self.open_logs_card.retranslateUi()
@@ -780,7 +484,6 @@ class SettingInterface(QWidget):
         self.discord_group_card.retranslateUi()
         self.feedback_card.retranslateUi()
         self.experimental_group.retranslateUi()
-        self.hdr_warning_card.retranslateUi()
         self.keep_screen_awake_card.retranslateUi()
 
     def __onThemeCardChanged(self):

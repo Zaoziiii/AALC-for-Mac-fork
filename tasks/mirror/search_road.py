@@ -8,12 +8,24 @@ import cv2
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
-from module.my_error.my_error import InputAttributeError
+from module.my_error.my_error import InputAttributeError, userStopError
 from tasks.base.retry import retry
 
 # 道路网格参数基于 2560×1440 游戏截图标定。
 ROAD_COLUMN_GAP = 520
 ROAD_ROW_GAP = 437
+
+
+# Reward icons or the resource bar can cover part of the bus (live: 0.80-0.81).
+# On map screens nothing else scores above 0.70; other screens peak at 0.75.
+MAP_BUS_THRESHOLD = 0.80
+
+
+def find_map_bus(take_screenshot=False):
+    return auto.find_element(
+        "mirror/mybus_default_distance.png", take_screenshot=take_screenshot,
+        model="retina", threshold=MAP_BUS_THRESHOLD,
+    )
 
 
 class MirrorMap:
@@ -28,6 +40,8 @@ class MirrorMap:
         if len(self.floor_map) > 0:
             next_step = self.floor_map.pop(0)
             if next_step is not None:
+                if cfg.background_click:
+                    return self._checked_step(next_step)
                 return next_step
             else:
                 re_identify = True
@@ -37,10 +51,17 @@ class MirrorMap:
         if re_identify is True:
             self.floor_map, self.floor_nodes = search_road_from_road_map(hard_mode=self.hard_mode)
             if self.floor_map is True and self.floor_nodes is True:
+                # Entered through the bus: nothing to cache (a bool cache broke len() next time).
+                self.floor_map, self.floor_nodes = [], []
                 return True
             if self.floor_map is False:
                 self.floor_map = []
                 return False
+            if not self.floor_map and cfg.background_click:
+                # No full route: take one step along a verified bus arrow,
+                # still preferring events, and replan at the next node.
+                log.debug("原版路线规划失败，改用巴士箭头确认下一步")
+                self.floor_map, self.floor_nodes = search_road_visible()
             if not isinstance(self.floor_map, list):
                 self.floor_map = list(self.floor_map)
             self.map[f"floor{self.floor}"] = [self.floor_map[:], self.floor_nodes[:]]
@@ -51,8 +72,24 @@ class MirrorMap:
         else:
             return False
 
+    def _checked_step(self, step):
+        """Follow a cached step only if the bus shows that arrow; never drags."""
+        choices = visible_choices()
+        if not choices:
+            log.debug(f"无法用箭头核对缓存路线 {step}，重新规划")
+            self.floor_map = []
+            return self.get_next_step()
+        directions = [direction for _, direction, _ in choices]
+        if step in directions:
+            return step
+        # The cached route guessed past the visible map; walk the best real
+        # arrow now and replan from the next node.
+        log.debug(f"缓存路线 {step} 与实际箭头 {directions} 不符，改走 {choices[0][1]}")
+        self.floor_map = []
+        return choices[0][1]
+
     def enter_next_node(self, next_step):
-        if cfg.mirror_keyboard_navigation:
+        if cfg.background_click or cfg.mirror_keyboard_navigation:
             log.debug(f"通过键盘按键寻路: {next_step}")
             if next_step == "U":
                 auto.key_press("up")
@@ -61,14 +98,29 @@ class MirrorMap:
             elif next_step == "M":
                 auto.key_press("right")
             sleep(1)
-            return _keyboard_enter_succeeded()
+            if _keyboard_enter_succeeded():
+                return True
+            if not cfg.background_click:
+                return False
+            # The game now and then swallows the key or only pans the camera.
+            sleep(1.5)
+            if _keyboard_enter_succeeded():
+                return True
+            if next_position := self._get_next_position(next_step):
+                log.debug(f"方向键未选中节点，改为后台点击节点 {next_step}")
+                auto.mouse_click(next_position[0], next_position[1])
+                sleep(1.25)
+                if _keyboard_enter_succeeded():
+                    return True
+            log.debug(f"方向键和点击都未能进入节点 {next_step}")
+            return False
 
         if next_position := self._get_next_position(next_step):
             auto.mouse_click(next_position[0], next_position[1])
             sleep(1.25)
             if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
-        if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
+        if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True, model="retina", threshold=0.90):
             sleep(1.25)
             if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                 return True
@@ -88,7 +140,7 @@ class MirrorMap:
         elif direction == "U":
             position = 2
         for _ in range(3):
-            if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+            if bus_position := find_map_bus(take_screenshot=True):
                 return [
                     bus_position[0] + three_roads[position][0],
                     bus_position[1] + three_roads[position][1],
@@ -180,7 +232,7 @@ def search_road_default_distance():
         return False
     # 判断中、下两个节点是否有权重3的节点，有的话直接选择进入
     node_weight = {}
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if bus_position := find_map_bus(take_screenshot=True):
         for road in three_roads[:2]:
             node_x = bus_position[0] + road[0]
             node_y = bus_position[1] + road[1]
@@ -196,7 +248,7 @@ def search_road_default_distance():
                 if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
                     return True
     # 如果中、下两个节点没有权重3的节点，查看所有节点的权重，选择权重最大的节点进入
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if bus_position := find_map_bus(take_screenshot=True):
         from tasks.base.retry import check_times
 
         while True:
@@ -210,16 +262,16 @@ def search_road_default_distance():
             if 600 * scale < bus_position[1] < 700 * scale:
                 break
             dy = 650 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
+            auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
             sleep(1)
             auto.mouse_to_blank()
 
-            bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+            bus_position = find_map_bus(take_screenshot=True)
             if bus_position is None:
                 break
 
     node_list = []
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if bus_position := find_map_bus(take_screenshot=True):
         for road in three_roads[:2]:
             node_x = bus_position[0] + road[0]
             node_y = bus_position[1] + road[1]
@@ -273,17 +325,65 @@ def search_road_farthest_distance():
     return False
 
 
+def search_road_visible():
+    """One step along the best verified bus arrow."""
+    if find_map_bus(take_screenshot=True) is None:
+        raise userStopError("当前画面未识别到巴士，后台寻路已停止；请将巴士置于可见区域")
+    choices = visible_choices()
+    if not choices:
+        raise userStopError("未确认巴士旁的可走箭头，后台寻路已停止")
+    _, direction, node_class = choices[0]
+    log.debug(f"后台箭头寻路: {direction}, 节点: {node_class}, 可走方向: {[c[1] for c in choices]}")
+    return [direction], [node_class]
+
+
+def visible_choices():
+    """Walkable bus arrows, best first; empty if the bus or arrows are not seen.
+
+    Outgoing arrows establish reachability; node classes rank choices.
+    """
+    bus = find_map_bus(take_screenshot=True)
+    if bus is None:
+        return []
+    scale = cfg.set_win_size / 1440
+    x_gap, y_gap = ROAD_COLUMN_GAP * scale, ROAD_ROW_GAP * scale
+    # Probe only the three outgoing-arrow regions, even if the destination
+    # icon is clipped by the HUD. Coordinates alone never establish a road.
+    candidates = [
+        ["unknown", (bus[0] + x_gap, bus[1] - row.value * y_gap)]
+        for row in (Row.TOP, Row.MID, Row.BOTTOM)
+    ]
+    connections = identify_road(bus, [candidates], Row.MID)
+    if not connections:
+        return []
+    nodes = identify_nodes(bus[0]) or []
+    choices = []
+    for _, _, row in connections:
+        target = (bus[0] + x_gap, bus[1] - row.value * y_gap)
+        matches = [node for node in nodes
+                   if abs(node[1][0] - target[0]) < x_gap / 4
+                   and abs(node[1][1] - target[1]) < y_gap / 4]
+        node_class = min(matches, key=lambda node:
+                         abs(node[1][0] - target[0]) + abs(node[1][1] - target[1]))[0] if matches else "unknown"
+        direction = {Row.TOP: "U", Row.MID: "M", Row.BOTTOM: "D"}[row]
+        # Unknown is still reachable, but known classified choices rank first.
+        priority = (node_class not in all_node_weight, all_node_weight.get(node_class, 0))
+        choices.append((priority, direction, node_class))
+    return sorted(choices, key=lambda choice: choice[0])
+
+
 def search_road_from_road_map(hard_mode=False):
     start_time = time.time()
     scale = cfg.set_win_size / 1440
     bus = None
 
-    if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True, model="retina", threshold=0.90):
         sleep(0.75)
         if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True, True
 
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    initial_bus = find_map_bus(take_screenshot=True)
+    if bus_position := initial_bus:
         from tasks.base.retry import check_times
 
         change_times = 5
@@ -300,11 +400,11 @@ def search_road_from_road_map(hard_mode=False):
                 break
             dx = 80 * scale - bus_position[0]
             dy = 690 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+            auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
             sleep(0.5)
             auto.mouse_to_blank()
 
-            bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+            bus_position = find_map_bus(take_screenshot=True)
             if bus_position is None:
                 break
             change_times -= 1
@@ -312,8 +412,16 @@ def search_road_from_road_map(hard_mode=False):
                 bus = bus_position
                 break
 
-    bus_pos = auto.find_element("mirror/mybus_default_distance.png") or bus
+    bus_pos = find_map_bus() or bus
+    if initial_bus is None:
+        raise userStopError("地图上未识别到巴士，已停止寻路；请确认处于镜牢地图、默认缩放且巴士在画面内")
+    if bus is None or bus_pos is None:
+        raise userStopError("地图拖动后未识别到巴士，已停止寻路；请将巴士移回画面后重试")
     all_nodes = identify_nodes(bus[0])
+    if not all_nodes:
+        # e.g. only the boss is left and it scores under the detector threshold.
+        log.warning("地图上未识别到任何节点，无法规划路线")
+        return [], []
     y_area = divide_the_area_by_y(all_nodes)
     reset_position = False
     bus_row = Row.MID
@@ -324,7 +432,8 @@ def search_road_from_road_map(hard_mode=False):
         else:
             reset_position = "Top"
             bus_row = Row.TOP
-    elif len(y_area) == 1:
+    elif len(y_area) == 1 and not cfg.background_click:
+        # 后台模式不走此分支：同一行的节点同样完整规划并缓存，避免每个节点都重新拖动地图。
         nodes_column = divide_the_area_by_x(all_nodes)
         connections = identify_road(bus, nodes_column[:1], bus_row)
         # 没有 Bus 到首列的连线时，无法推导下一步方向。
@@ -339,7 +448,7 @@ def search_road_from_road_map(hard_mode=False):
             set_y_position = 1100 * scale
         else:
             set_y_position = 250 * scale
-        if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+        if bus_position := find_map_bus(take_screenshot=True):
             from tasks.base.retry import check_times
 
             while True:
@@ -358,11 +467,11 @@ def search_road_from_road_map(hard_mode=False):
                     break
                 dx = 550 * scale - bus_position[0]
                 dy = set_y_position - bus_position[1]
-                auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+                auto.mouse_drag_map(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
                 sleep(0.5)
                 auto.mouse_to_blank()
 
-                bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
+                bus_position = find_map_bus(take_screenshot=True)
                 if bus_position is None:
                     break
         all_nodes = identify_nodes(bus[0])
@@ -445,7 +554,10 @@ def identify_nodes(bus_x):
     class_ids = []
     # 收集超过置信度阈值的候选框，供 NMS 去除重叠检测。
     for output in outputs:
-        _, max_score, _, (_, class_id) = cv2.minMaxLoc(output[4:])
+        # OpenCV 5 minMaxLoc reports a 1-D array's index on the other axis,
+        # which made every node class 0 ("battle").
+        class_id = int(np.argmax(output[4:]))
+        max_score = float(output[4 + class_id])
         if max_score < confidence_threshold:
             continue
         boxes.append([output[0] - output[2] / 2, output[1] - output[3] / 2, output[2], output[3]])

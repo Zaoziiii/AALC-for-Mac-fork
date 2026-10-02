@@ -7,7 +7,7 @@ game_process_name: LimbusCompany.exe # 游戏进程名。
 game_path: C:\Program Files (x86)\Steam\steamapps\common\Limbus Company\LimbusCompany.exe # 游戏启动路径。
 
 keep_after_completion: False # 是否保持脚本结束后的操作
-language_in_program: "" # 程序语言
+language_in_program: "zh_cn"
 shutdown_hotkey: "<ctrl>+q" # 关闭快捷键
 pause_hotkey: "<alt>+p" # 暂停快捷键
 resume_hotkey: "<alt>+r" # 继续快捷键
@@ -17,7 +17,7 @@ announcement: 1715990400 # 公告板时间戳
 memory_protection: False # 内存占用保护
 
 background_click: True # 是否使用后台点击
-win_input_type: "background" # 键鼠操控方式
+win_input_type: "foreground" # 键鼠操控方式（foreground 或 background）
 
 auto_hard_mirror: False # 周四自动切换困难镜牢
 last_auto_change: 1715990400 # 上次自动切换困难镜牢的时间戳

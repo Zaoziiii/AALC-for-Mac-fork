@@ -1,3 +1,4 @@
+from tasks.base.map_state import is_mirror_map
 from time import monotonic
 
 from module.automation import auto
@@ -52,7 +53,7 @@ def get_reward_card(model=0):
         if auto.take_screenshot() is None:
             continue
         auto.mouse_to_blank()
-        if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+        if is_mirror_map():
             return True
         if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", model="clam"):
             log.debug("奖励卡领取后识别到EGO确认，领取流程结束")

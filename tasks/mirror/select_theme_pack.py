@@ -1,3 +1,4 @@
+from tasks.base.map_state import is_mirror_map
 from time import sleep
 
 from module.automation import TextMatchResult, auto
@@ -57,7 +58,7 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
     # 游戏更新后新增的主题包尚未收录时的兜底权重，取自「未知 / unknown」配置项
     unknown_weight = int(theme_pack_list_zh.get("未知", theme_pack_list_en.get("unknown", -5)))
     refresh_times = 3
-    if auto.find_element("mirror/road_in_mir/legend_assets.png", take_screenshot=True):
+    if is_mirror_map(take_screenshot=True):
         return
     while True:
         # 自动截图

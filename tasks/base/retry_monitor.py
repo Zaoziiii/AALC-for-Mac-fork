@@ -98,6 +98,8 @@ class RetryMonitor:
 
     def check_once(self, screenshot=None) -> bool:
         """检查一次重试弹窗，返回本轮是否执行了点击。"""
+        if auto.check_pause():
+            return False
         if screenshot is None:
             screenshot = auto.take_monitor_screenshot(max_age=self.screenshot_max_age)
         if screenshot is None:
@@ -136,10 +138,24 @@ class RetryMonitor:
         return True
 
     def _run(self) -> None:
+        from module.macos.recovery import GameWindowLost, game_recovery
         while not self._stop_event.wait(self.poll_interval):
+            if game_recovery.in_progress:
+                # The task thread is restarting a crashed game.
+                continue
             try:
                 self.check_once()
-            except Exception:
+            except Exception as exc:
+                from module.my_error.my_error import userStopError
+                if isinstance(exc, GameWindowLost) or game_recovery.in_progress:
+                    # Crash noticed here first, or recovery began mid-check:
+                    # the task thread handles it.
+                    continue
+                if isinstance(exc, userStopError):
+                    from module.macos.control import cancel
+                    cancel()
+                    log.warning(str(exc))
+                    return
                 log.exception("通用服务器重试监控线程处理异常")
 
 

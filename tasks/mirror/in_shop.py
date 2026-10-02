@@ -1,3 +1,4 @@
+from tasks.base.map_state import is_mirror_map
 from time import sleep
 
 from PIL import Image
@@ -1420,7 +1421,7 @@ class Shop:
 
                 if retry() is False:
                     raise self.RestartGame()
-                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                if is_mirror_map():
                     break
                 if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
                     continue
