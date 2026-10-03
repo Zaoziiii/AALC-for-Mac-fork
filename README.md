@@ -1,6 +1,6 @@
 # AALC Mac · CrossOver 版
 
-面向 **Apple Silicon macOS + CrossOver Steam《边狱公司》**的原生自动化助手。当前版本：**1.0.9-mac.14**。
+面向 **Apple Silicon macOS + CrossOver Steam《边狱公司》**的原生自动化助手。当前版本：**1.0.9-mac.14**。未针对其他模拟器测试，理论上**基于Wine**的模拟器都可以使用。
 
 基于 [KIYI671/AhabAssistantLimbusCompany](https://github.com/KIYI671/AhabAssistantLimbusCompany) 移植，非上游官方 Mac 发行版。保留 Qt 界面、图像/OCR 识别及日常、镜牢任务，替换 Windows 平台控制代码。
 
