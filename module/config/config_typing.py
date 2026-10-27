@@ -540,6 +540,10 @@ class ConfigModel(BaseModel):
     mirror_keyboard_simple_pathfinding: bool
     """简单键盘寻路模式：始终按↑选择第一个节点，完全避免鼠标拖动"""
 
+    mirror_background_no_drag: bool
+    """后台模式镜牢寻路不拖地图：每步按巴士旁可见的箭头和节点权重选下一步（方向键进入），
+    不借用系统鼠标；代价是只看下一列，不做整层最优路线"""
+
     teams: dict[str, TeamSetting]
     """队伍设置"""
 

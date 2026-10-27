@@ -260,3 +260,24 @@ def test_entering_through_the_bus_leaves_no_bool_cache():
          patch.object(road, 'search_road_from_road_map', return_value=(True, True)):
         assert mirror_map.get_next_step() is True
     assert mirror_map.floor_map == []
+
+
+def test_no_drag_option_walks_visible_arrows_and_never_plans_with_drags():
+    settings = {'background_click': True, 'mirror_background_no_drag': True}
+    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: settings.get(key, default)), \
+         patch.object(road, 'search_road_from_road_map', side_effect=AssertionError('planning drags the map')), \
+         patch.object(road, 'search_road_visible', side_effect=[(['D'], ['event']), (['M'], ['shop'])]) as visible, \
+         patch.object(auto, 'mouse_drag_map', side_effect=AssertionError('must not drag')):
+        mirror_map = road.MirrorMap()
+        assert mirror_map.get_next_step() == 'D'
+        assert mirror_map.get_next_step() == 'M'
+        assert visible.call_count == 2
+
+
+def test_no_drag_option_is_ignored_in_foreground():
+    settings = {'background_click': False, 'mirror_background_no_drag': True}
+    with patch.object(cfg, 'get_value', side_effect=lambda key, default=None: settings.get(key, default)), \
+         patch.object(road, 'search_road_from_road_map', return_value=(['U'], ['bus', 'event'])) as plan, \
+         patch.object(road, 'search_road_visible', side_effect=AssertionError('foreground keeps original planning')):
+        assert road.MirrorMap().get_next_step() == 'U'
+        plan.assert_called_once()

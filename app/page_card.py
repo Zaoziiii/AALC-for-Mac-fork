@@ -436,6 +436,13 @@ class PageMirror(PageCard):
             center=False,
         )
 
+        self.mirror_background_no_drag = BaseCheckBox(
+            "mirror_background_no_drag",
+            None,
+            QT_TRANSLATE_NOOP("BaseCheckBox", "后台寻路不拖地图（按巴士旁箭头逐步走，完全不占用鼠标）"),
+            center=False,
+        )
+
         self.mirror_keyboard_navigation.check_box.toggled.connect(
             self._on_keyboard_navigation_toggled
         )
@@ -465,6 +472,7 @@ class PageMirror(PageCard):
         self.vbox_advanced.addWidget(self.fight_to_last_man)
         self.vbox_advanced.addWidget(self.mirror_keyboard_navigation)
         self.vbox_advanced.addWidget(self.mirror_keyboard_simple_pathfinding)
+        self.vbox_advanced.addWidget(self.mirror_background_no_drag)
 
         self.card_layout.insertWidget(self.card_layout.count() - 1, self.mirror_count)
 

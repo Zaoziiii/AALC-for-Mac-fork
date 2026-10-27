@@ -36,6 +36,12 @@ class MirrorMap:
         self.hard_mode = hard_mode
 
     def get_next_step(self):
+        if cfg.background_click and cfg.mirror_background_no_drag:
+            # 不拖地图（拖地图要临时借用鼠标）：每一步都按巴士旁实际可走的箭头、
+            # 优先事件/商店选下一个节点，到了下一个节点再重新看
+            self.floor_map, self.floor_nodes = [], []
+            directions, _ = search_road_visible()
+            return directions[0]
         re_identify = False
         if len(self.floor_map) > 0:
             next_step = self.floor_map.pop(0)
