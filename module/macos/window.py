@@ -7,6 +7,16 @@ from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps,
 from module.macos.capture import capture_window
 from module.macos.geometry import GameGeometry, covers_content
 from module.my_error.my_error import userStopError
+from module.logger import log
+
+# CrossOver occasionally re-applies the game's frame and shifts it a few points
+# (e.g. snapping to the display edge); treat that as the same window.
+JITTER = 8
+
+
+def jittered(a, b):
+    return a is not None and b is not None and all(abs(p - q) <= JITTER for p, q in
+        ((a.x, b.x), (a.y, b.y), (a.x + a.width, b.x + b.width), (a.y + a.height, b.y + b.height)))
 
 
 def permissions():
@@ -98,8 +108,11 @@ class GameWindow:
         if not self.background:
             self.assert_front(info)
         g = self.geometry(info)
-        if self.last_capture_geometry is not None and (g != self.last_capture_geometry or info['kCGWindowNumber'] != self.last_capture_id or info['kCGWindowOwnerPID'] != self.last_capture_pid):
+        if self.last_capture_geometry is not None and (info['kCGWindowNumber'] != self.last_capture_id or info['kCGWindowOwnerPID'] != self.last_capture_pid
+                                                       or not jittered(g, self.last_capture_geometry)):
             raise userStopError('游戏窗口位置或大小已改变，请重新开始')
+        if self.last_capture_geometry is not None and g != self.last_capture_geometry:
+            log.debug(f'游戏窗口微小位移，继续运行: {self.last_capture_geometry} -> {g}')
         # Native capture excludes shadows; Retina pixels are normalized below.
         raw = capture_window(int(info['kCGWindowNumber']))
         current = self.info()
@@ -125,7 +138,7 @@ class GameWindow:
         g = self.geometry(info)
         if self.last_capture_geometry is None:
             raise userStopError('尚未获取游戏画面，拒绝发送输入')
-        if self.last_capture_id != info['kCGWindowNumber'] or self.last_capture_pid != info['kCGWindowOwnerPID'] or g != self.last_capture_geometry:
+        if self.last_capture_id != info['kCGWindowNumber'] or self.last_capture_pid != info['kCGWindowOwnerPID'] or not jittered(g, self.last_capture_geometry):
             raise userStopError(f'游戏窗口位置或大小已改变，已停止输入。截图时: {self.last_capture_geometry}, 窗口ID={self.last_capture_id}；当前: {g}, 窗口ID={info["kCGWindowNumber"]}。请重新调整窗口后开始。')
         return InputTarget(int(info['kCGWindowOwnerPID']), int(info['kCGWindowNumber']), g)
 

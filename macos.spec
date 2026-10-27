@@ -12,6 +12,6 @@ exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name='AALC Mac',console=False,tar
 coll=COLLECT(exe,a.binaries,a.datas,name='AALC Mac')
 app=BUNDLE(coll,name='AALC Mac.app',icon=str(root/'assets/logo/macos.icns'),
     bundle_identifier='org.aalc.community.macos',
-    info_plist={'CFBundleShortVersionString':'1.0.9','CFBundleVersion':'16','LSMinimumSystemVersion':'14.0',
+    info_plist={'CFBundleShortVersionString':'1.0.9','CFBundleVersion':'17','LSMinimumSystemVersion':'14.0',
     'NSHighResolutionCapable':True,'NSAppleEventsUsageDescription':'用于控制 CrossOver 中的游戏窗口。',
     'NSScreenCaptureUsageDescription':'识别边狱公司游戏画面以执行你选择的任务。'})
