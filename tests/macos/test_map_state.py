@@ -4,7 +4,7 @@ from tasks.base.map_state import is_mirror_map
 def test_all_map_transitions_use_retina_detection():
     with patch('tasks.base.map_state.auto.find_element',return_value=(1848,152)) as detect:
         assert is_mirror_map(take_screenshot=True)
-    detect.assert_called_once_with('mirror/road_in_mir/legend_assets.png',model='retina',threshold=.9,take_screenshot=True)
+    detect.assert_called_once_with('mirror/road_in_mir/legend_assets.png',model='retina',threshold=.85,take_screenshot=True)
 
 def test_missing_map_does_not_complete_transition():
     with patch('tasks.base.map_state.auto.find_element',return_value=None):
