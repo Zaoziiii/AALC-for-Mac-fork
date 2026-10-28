@@ -6,6 +6,31 @@ from AppKit import NSScreen, NSWindow, NSWindowStyleMaskTitled
 from module.macos.window import window, require_permissions
 from module.macos.geometry import GameGeometry
 from module.my_error.my_error import userStopError
+from module.logger import log
+
+
+def _display_scale(before):
+    cx, cy = before.x + before.width / 2, before.y + before.height / 2
+    for screen in NSScreen.screens():
+        bounds = Quartz.CGDisplayBounds(screen.deviceDescription()["NSScreenNumber"])
+        if bounds.origin.x <= cx < bounds.origin.x + bounds.size.width and bounds.origin.y <= cy < bounds.origin.y + bounds.size.height:
+            return float(screen.backingScaleFactor())
+    raise userStopError("无法确定游戏所在显示器")
+
+
+def fit_game_window():
+    """Restore 1920x1080 game pixels when CrossOver has grown the frame; never moves the mouse."""
+    b = window.info()["kCGWindowBounds"]
+    width = 1920 / _display_scale(GameGeometry(b["X"], b["Y"], b["Width"], b["Height"], 0))
+    if abs(b["Width"] - width) <= 1:
+        return False
+    log.info(f"游戏窗口宽度为 {b['Width']:g}，不是 1920 像素对应的 {width:g}，自动调回")
+    try:
+        log.info(resize_game())
+    except userStopError as e:
+        log.warning(f"自动调整窗口失败，继续使用当前尺寸：{e}")
+        return False
+    return True
 
 
 def resize_game():
@@ -14,15 +39,7 @@ def resize_game():
     bounds = info["kCGWindowBounds"]
     # Resizing must also accept the non-16:9 windows it is intended to repair.
     before = GameGeometry(bounds["X"], bounds["Y"], bounds["Width"], bounds["Height"], 0)
-    scale = None
-    cx, cy = before.x + before.width / 2, before.y + before.height / 2
-    for screen in NSScreen.screens():
-        bounds = Quartz.CGDisplayBounds(screen.deviceDescription()["NSScreenNumber"])
-        if bounds.origin.x <= cx < bounds.origin.x + bounds.size.width and bounds.origin.y <= cy < bounds.origin.y + bounds.size.height:
-            scale = float(screen.backingScaleFactor())
-            break
-    if scale is None:
-        raise userStopError("无法确定游戏所在显示器")
+    scale = _display_scale(before)
     content = NSWindow.contentRectForFrameRect_styleMask_(((0, 0), (before.width, before.height)), NSWindowStyleMaskTitled)
     titlebar = before.height - content.size.height
     target_width, target_height = 1920 / scale, 1080 / scale + titlebar

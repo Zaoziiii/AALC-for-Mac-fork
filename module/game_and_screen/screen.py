@@ -33,6 +33,8 @@ class Screen:
         return True
 
     def set_win(self):
+        from module.macos.resize import fit_game_window
+        fit_game_window()
         window.focus()
         window.capture(False)
 

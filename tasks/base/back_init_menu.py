@@ -37,7 +37,12 @@ def back_init_menu(*, allow_restart: bool = True):
         if retry() is False:
             return False
 
-        if auto.click_element("home/window_assets.png") and auto.find_element("home/mail_assets.png", model="normal"):
+        # A stray Esc on the home screen opens the Settings menu; close it with Return.
+        if auto.click_element("home/settings_return_assets.png"):
+            continue
+
+        # The mail icon only scores ~0.75-0.81; missing it fell through to Esc, which opens Settings on the home screen.
+        if auto.click_element("home/window_assets.png") and auto.find_element("home/mail_assets.png", threshold=0.7, model="normal"):
             return True
 
         if auto.find_element("base/notification_close_assets.png"):

@@ -113,6 +113,12 @@ class GameWindow:
             raise userStopError('游戏窗口位置或大小已改变，请重新开始')
         if self.last_capture_geometry is not None and g != self.last_capture_geometry:
             log.debug(f'游戏窗口微小位移，继续运行: {self.last_capture_geometry} -> {g}')
+            if g.width != self.last_capture_geometry.width:
+                # Each jitter grows the frame; shrink it back before the UI drifts off 1920x1080.
+                from module.macos.resize import fit_game_window
+                if fit_game_window():
+                    info = self.info()
+                    g = self.geometry(info)
         # Native capture excludes shadows; Retina pixels are normalized below.
         raw = capture_window(int(info['kCGWindowNumber']))
         current = self.info()
