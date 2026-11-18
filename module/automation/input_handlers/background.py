@@ -1,8 +1,8 @@
 """Window-targeted macOS input for the process hosting the CrossOver game.
 
 Events are posted only to the captured game's PID. No clipboard, global event
-stream or application activation is used. Mirror map drags alone borrow the
-system cursor for their duration (see _drag_borrowing_cursor).
+stream or application activation is used. Held drags (map, lists, battle
+links, theme packs) borrow the system cursor briefly (see _drag_borrowing_cursor).
 """
 from time import monotonic, sleep as _sleep_uncancellable
 
@@ -140,6 +140,14 @@ class BackgroundInput(Input):
             self._mouse(Q.kCGEventLeftMouseUp, point, target, release=True)
             focus_guard.note(target.pid, '拖动')
 
+    def mouse_drag(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True):
+        # Held list drags (initial EGO gift list, shop lists, luxcavation) also
+        # follow the real cursor under CrossOver: a PID-only drag left the
+        # initial gift list unscrolled forever. Windows' background mouse_drag
+        # moves the real cursor too. Hold 0.5 s before release like upstream.
+        self._drag_borrowing_cursor([(x, y), (x + dx, y + dy)], drag_time,
+                                    max(0.5, drag_time * 0.3))
+
     def mouse_drag_map(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True):
         self._drag_borrowing_cursor([(x, y), (x + dx, y + dy)], drag_time, 0.5)
 
@@ -199,7 +207,7 @@ class BackgroundInput(Input):
         finally:
             Q.CGWarpMouseCursorPosition(original)
             Q.CGAssociateMouseAndMouseCursorPosition(True)
-            focus_guard.note(target.pid, '拖动地图')
+            focus_guard.note(target.pid, '拖动')
 
     def mouse_scroll(self, direction=-3):
         # CrossOver does not reliably deliver background wheel events to Unity.

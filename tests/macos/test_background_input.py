@@ -77,7 +77,8 @@ def test_keys_are_targeted_and_unsupported_keys_fail_without_input(sent):
 
 def test_drag_release_on_window_move_does_not_retarget(sent):
     driver = make_driver()
-    with patch('module.macos.window.window.input_target',side_effect=[TARGET,TARGET,userStopError('moved')]):
+    with patch('module.macos.window.window.input_target',side_effect=[TARGET,TARGET,userStopError('moved')]), \
+         patch('module.automation.input_handlers.background._sleep_uncancellable'):
         with pytest.raises(userStopError):
             driver.mouse_drag(100,100,drag_time=0.1,dx=200)
     assert Q.CGEventGetType(sent[-1][1])==Q.kCGEventLeftMouseUp
@@ -165,18 +166,32 @@ def test_theme_pack_drag_down_borrows_cursor(sent, cursor):
     assert tuple(Q.CGEventGetLocation(sent[-1][1])) == warps[-2]
 
 
-def test_list_drags_stay_pure_background(sent, cursor):
+def test_swipe_for_scroll_stays_pure_background(sent, cursor):
     driver = make_driver()
     with patch('module.automation.input_handlers.background._user_idle_seconds', side_effect=AssertionError('must not wait')):
-        driver.mouse_drag(100, 100, drag_time=0.1, dy=200)
         driver.mouse_swipe_for_scroll(100, 100, duration=0.1, dy=200)
     assert cursor == []
     assert all(pid == 123 for pid, _ in sent)
 
 
+def test_initial_gift_list_drag_borrows_cursor(sent, cursor):
+    # Live: mirror.py dragged slash_gift_1 at (955, 624) up 400 px over and
+    # over; the PID-only drag never scrolled the list.
+    driver = make_driver()
+    with patch('module.automation.input_handlers.background._sleep_uncancellable'):
+        driver.mouse_drag(955, 624, drag_time=0.2, dy=-400)
+    assert cursor[0] == ('associate', False)
+    assert cursor[-2:] == [('warp', (5, 6)), ('associate', True)]
+    warps = [p for kind, p in cursor if kind == 'warp']
+    assert warps[0] == tuple(TARGET.geometry.to_screen(955, 624))
+    assert warps[-2] == tuple(TARGET.geometry.to_screen(955, 224))
+    assert tuple(Q.CGEventGetLocation(sent[-1][1])) == warps[-2]
+
+
 def test_drag_ending_outside_the_game_is_clamped_not_rejected(sent):
     driver = make_driver()
-    driver.mouse_drag(1686, 363, drag_time=0.1, dy=-500)   # live in_shop swipe
+    with patch('module.automation.input_handlers.background._sleep_uncancellable'):
+        driver.mouse_drag(1686, 363, drag_time=0.1, dy=-500)   # live in_shop swipe
     last = sent[-1][1]
     assert Q.CGEventGetType(last) == Q.kCGEventLeftMouseUp
     assert tuple(Q.CGEventGetLocation(last)) == tuple(TARGET.geometry.to_screen(1686, 1))

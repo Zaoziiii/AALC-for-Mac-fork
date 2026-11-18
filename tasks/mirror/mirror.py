@@ -865,6 +865,7 @@ class Mirror:
                 break
 
             if (team_system == "slash" or team_system == "pierce" or team_system == "blunt") and scroll == False:
+                drags = 0
                 while slash_button := auto.find_element("mirror/road_to_mir/slash_gift_1.png"):
                     auto.mouse_drag(slash_button[0], slash_button[1], drag_time=0.2, dx=0, dy=-400)
                     sleep(0.5)
@@ -873,6 +874,12 @@ class Mirror:
                         take_screenshot=True,
                     ):
                         scroll = True
+                        break
+                    drags += 1
+                    if drags >= 5:
+                        # Never spin here forever; the outer loop retries and
+                        # eventually backs out to the main menu.
+                        log.warning("初始饰品列表拖动 5 次仍未滚到下方，稍后重试")
                         break
 
             if not select_system and auto.click_element(f"mirror/road_to_mir/{team_system}_gift_assets.png"):
