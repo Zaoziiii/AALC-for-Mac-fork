@@ -26,6 +26,7 @@ class FocusGuard:
         self.last_action = None
         self.last_action_at = 0.0
         self.is_paused = lambda: False
+        self.restores = 0
 
     def note(self, game_pid, action):
         """Call after each background input so a later switch can be attributed."""
@@ -50,7 +51,15 @@ class FocusGuard:
             cause = f"紧接在{self.last_action}之后"
         else:
             cause = "游戏自行切到前台"
-        log.warning(f"游戏被切到前台（{cause}），已切回 {previous.localizedName()}")
+        message = f"游戏被切到前台（{cause}），已切回 {previous.localizedName()}"
+        self.restores += 1
+        if self.restores == 1:
+            # CrossOver raises the game on nearly every background mouse press.
+            # It is undone at once; say so once, then keep it to the debug log.
+            log.warning(f"{message}。CrossOver 收到后台点击时常会把游戏切到前台，"
+                        "AALC 会立刻切回，属正常现象；之后同样的情况只记在调试日志里")
+        else:
+            log.debug(message)
         previous.activateWithOptions_(0)
 
 

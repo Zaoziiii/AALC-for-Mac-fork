@@ -14,7 +14,7 @@ from module.macos.control import wait_cancelled
 from module.macos.focus import focus_guard, user_idle_seconds
 from module.macos.window import window
 from module.my_error.my_error import userStopError
-from .input import Input
+from .input import Input, offscreen_click
 
 
 USER_IDLE_SECONDS = 1.5
@@ -89,6 +89,8 @@ class BackgroundInput(Input):
         return event
 
     def mouse_click(self, x, y, times=1, move_back=False):
+        if offscreen_click(x, y):
+            return False
         for _ in range(times):
             target = self._target()
             point = target.geometry.to_screen(x, y)

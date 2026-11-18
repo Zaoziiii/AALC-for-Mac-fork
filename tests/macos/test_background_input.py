@@ -180,3 +180,11 @@ def test_drag_ending_outside_the_game_is_clamped_not_rejected(sent):
     last = sent[-1][1]
     assert Q.CGEventGetType(last) == Q.kCGEventLeftMouseUp
     assert tuple(Q.CGEventGetLocation(last)) == tuple(TARGET.geometry.to_screen(1686, 1))
+
+
+def test_click_outside_the_game_is_skipped_not_fatal(sent):
+    # Live: aggressive fuse extrapolated a gift row to (198.25, 1181.75).
+    driver = make_driver()
+    assert driver.mouse_click(198.25, 1181.75) is False
+    assert sent == []
+    assert driver.mouse_click(960, 540) is True

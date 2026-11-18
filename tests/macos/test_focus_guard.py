@@ -71,3 +71,17 @@ def test_paused_task_lets_the_game_stay_in_front(world):
     guard.check(GAME)   # resumed while the user is in the game: no stale restore
     steam.activateWithOptions_.assert_not_called()
     world['warn'].assert_not_called()
+
+
+def test_repeated_restores_are_logged_once_then_debug(world):
+    guard = focus.FocusGuard()
+    steam = world['front']
+    with patch.object(focus.log, 'debug') as debug:
+        for _ in range(3):
+            world['front'] = steam
+            guard.check(GAME)
+            world['front'] = app(GAME, 'LimbusCompany')
+            guard.note(GAME, '点击')
+    assert steam.activateWithOptions_.call_count == 3
+    assert world['warn'].call_count == 1
+    assert debug.call_count == 2

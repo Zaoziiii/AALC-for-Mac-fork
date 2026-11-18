@@ -8,6 +8,23 @@ pyautogui.PAUSE = 0.03
 from module.macos.window import window
 from module.macos.gesture import held_mouse
 from module.my_error.my_error import userStopError
+from math import isfinite
+
+
+def offscreen_click(x, y):
+    """True (and logged) when a click lands outside the 1920x1080 game frame.
+
+    Some task math extrapolates a grid past the screen edge (e.g. the second
+    row of gifts in aggressive fuse). On Windows such a click falls outside
+    the client area and does nothing; here it is skipped the same way instead
+    of aborting the whole task.
+    """
+    if isfinite(x) and isfinite(y) and 0 <= x < 1920 and 0 <= y < 1080:
+        return False
+    from module.logger import log
+    log.warning(f'跳过游戏画面外的点击: ({x:.0f}, {y:.0f})', stacklevel=3)
+    return True
+
 
 class Input(AbstractInput):
     def wait_pause(self):
@@ -28,6 +45,8 @@ class Input(AbstractInput):
         return window.input_geometry()
 
     def mouse_click(self, x, y, times=1, move_back=False):
+        if offscreen_click(x, y):
+            return False
         previous=pyautogui.position()
         for _ in range(times):
             point=self._geometry().to_screen(x,y)
