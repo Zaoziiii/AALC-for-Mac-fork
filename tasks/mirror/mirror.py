@@ -960,11 +960,19 @@ class Mirror:
         auto.model = "clam"
 
         my_scale = cfg.set_win_size / 1440
+        # System tabs (Burn ... Blunt, Keywordless) sit 124 px apart at 1440p:
+        # measured live at 1080p, Burn x=170 .. Keywordless x=1100 (93 px per
+        # tab). The old 110 px step put the Keywordless click on Blunt.
+        tab_step = 124 * my_scale
         benchmark_point = None
-        if point := auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam",take_screenshot=True):
-            benchmark_point = point
-        elif point := auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam"):
-            benchmark_point = (point[0] - 110 * my_scale, point[1])
+        burn = auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_burn_assets.png", model="clam",take_screenshot=True)
+        bleed = auto.find_element("mirror/road_to_mir/observe_ego_gift/observe_bleed_assets.png", model="clam")
+        if burn and bleed and 0.6 * tab_step < bleed[0] - burn[0] < 1.4 * tab_step:
+            tab_step = bleed[0] - burn[0]
+        if burn:
+            benchmark_point = burn
+        elif bleed:
+            benchmark_point = (bleed[0] - tab_step, bleed[1])
 
         if not benchmark_point:
             return
@@ -990,11 +998,13 @@ class Mirror:
             else:
                 system_index = [k for k, v in observe_system.items() if v == file_system][0]
             # 选择体系，先点一下其他体系，再点回来，重置页面
-            auto.mouse_click(benchmark_point[0] + 110 * (system_index+1) * my_scale, benchmark_point[1])
+            log.debug(f"观测饰品：选择第 {system_index} 个体系标签，间距 {tab_step:.1f}")
+            if system_index < 10:
+                auto.mouse_click(benchmark_point[0] + tab_step * (system_index + 1), benchmark_point[1])
+                sleep(0.2)
+            auto.mouse_click(benchmark_point[0] + tab_step * (system_index - 1 if system_index else 1), benchmark_point[1])
             sleep(0.2)
-            auto.mouse_click(benchmark_point[0] + 110 * (system_index - 1) * my_scale, benchmark_point[1])
-            sleep(0.2)
-            auto.mouse_click(benchmark_point[0] + 110 * system_index * my_scale, benchmark_point[1])
+            auto.mouse_click(benchmark_point[0] + tab_step * system_index, benchmark_point[1])
             sleep(0.2)
 
             if level_point := auto.find_element(f"mirror/road_to_mir/observe_ego_gift/Level_{"I"*gift_level}.png",take_screenshot=True):
