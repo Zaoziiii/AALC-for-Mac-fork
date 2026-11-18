@@ -137,10 +137,37 @@ def test_drag_waits_until_user_leaves_mouse_alone(sent, cursor):
     assert cursor[0] == ('associate', False)
 
 
-def test_battle_and_list_drags_stay_pure_background(sent, cursor):
+def test_battle_link_borrows_cursor_through_every_slot(sent, cursor):
+    # Defense / skill-3 links: the game follows the real cursor while held.
+    driver = make_driver()
+    path = [(399, 851), (540, 1038), (661, 1038), (1398, 976)]
+    with patch('module.automation.input_handlers.background._sleep_uncancellable'):
+        driver.mouse_drag_link(path)
+    assert cursor[0] == ('associate', False)
+    assert cursor[-2:] == [('warp', (5, 6)), ('associate', True)]
+    warps = [p for kind, p in cursor if kind == 'warp']
+    for point in path:
+        assert tuple(TARGET.geometry.to_screen(*point)) in warps
+    types = [Q.CGEventGetType(e) for _, e in sent]
+    assert types[0] == Q.kCGEventLeftMouseDown and types[-1] == Q.kCGEventLeftMouseUp
+    assert tuple(Q.CGEventGetLocation(sent[-1][1])) == tuple(TARGET.geometry.to_screen(1398, 976))
+
+
+def test_theme_pack_drag_down_borrows_cursor(sent, cursor):
+    driver = make_driver()
+    with patch('module.automation.input_handlers.background._sleep_uncancellable'):
+        driver.mouse_drag_down(1035, 338)
+    assert cursor[0] == ('associate', False)
+    assert cursor[-2:] == [('warp', (5, 6)), ('associate', True)]
+    warps = [p for kind, p in cursor if kind == 'warp']
+    assert warps[0] == tuple(TARGET.geometry.to_screen(1035, 338))
+    assert warps[-2] == tuple(TARGET.geometry.to_screen(1035, 838))
+    assert tuple(Q.CGEventGetLocation(sent[-1][1])) == warps[-2]
+
+
+def test_list_drags_stay_pure_background(sent, cursor):
     driver = make_driver()
     with patch('module.automation.input_handlers.background._user_idle_seconds', side_effect=AssertionError('must not wait')):
-        driver.mouse_drag_link([(100, 100), (200, 100), (300, 100)])
         driver.mouse_drag(100, 100, drag_time=0.1, dy=200)
         driver.mouse_swipe_for_scroll(100, 100, duration=0.1, dy=200)
     assert cursor == []

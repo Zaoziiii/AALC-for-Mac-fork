@@ -141,6 +141,21 @@ class BackgroundInput(Input):
     def mouse_drag_map(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True):
         self._drag_borrowing_cursor([(x, y), (x + dx, y + dy)], drag_time, 0.5)
 
+    def mouse_drag_link(self, position, drag_time=0.1, move_back=False):
+        # Battle skill links (defense, skill-3 modes) are held drags across the
+        # skill bar. Like the map camera, Unity under CrossOver follows the real
+        # cursor while the button is held, so a PID-only link ends wherever the
+        # user's pointer is. Windows' background mode likewise moves the game
+        # window under the real cursor for this drag.
+        if position:
+            self._drag_borrowing_cursor(position, drag_time, 0.1)
+
+    def mouse_drag_down(self, x, y, reverse=1, move_back=True):
+        # Theme pack selection drags a card downward; it only counts when the
+        # game sees the cursor travel, so the cursor is borrowed here too. The
+        # 500 px / 0.6 s stroke matches Windows' window-moving background mode.
+        self._drag_borrowing_cursor([(x, y), (x, y + 500 * reverse)], 0.6, 0.3)
+
     def _drag_borrowing_cursor(self, points, duration, settle):
         # The mirror map camera follows Wine's GetCursorPos, which reports the
         # real system cursor, so a PID-only drag jumps toward the user's
