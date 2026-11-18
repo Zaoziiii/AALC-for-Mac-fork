@@ -877,9 +877,10 @@ class Mirror:
                         break
                     drags += 1
                     if drags >= 5:
-                        # Never spin here forever; the outer loop retries and
-                        # eventually backs out to the main menu.
-                        log.warning("初始饰品列表拖动 5 次仍未滚到下方，稍后重试")
+                        # Never spin here forever: stop scrolling and go on to
+                        # pick the system and the gifts on the right.
+                        log.warning("初始饰品列表拖动 5 次仍未确认滚到下方，直接继续选饰品")
+                        scroll = True
                         break
 
             if not select_system and auto.click_element(f"mirror/road_to_mir/{team_system}_gift_assets.png"):
