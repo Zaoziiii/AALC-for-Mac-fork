@@ -50,6 +50,14 @@ def to_log_with_time(msg, elapsed_time):
 BACKGROUND_ROAD_RETRIES = 2
 
 
+
+def _mirror_dungeons_visible(take_screenshot=False):
+    """Mirror Dungeons button on the Drive page, normal or event layout."""
+    return bool(
+        auto.find_element("home/mirror_dungeons_assets.png", take_screenshot=take_screenshot)
+        or auto.find_element("home/mirror_dungeons_event_assets.png")
+    )
+
 class Mirror:
     def __init__(self, team_setting: TeamSetting, team_num: int):
         team_setting = team_setting.model_copy(deep=True)  # 避免修改原始配置
@@ -173,11 +181,14 @@ class Mirror:
                 continue
             if auto.click_element("home/mirror_dungeons_assets.png"):
                 continue
-            if auto.find_element("home/inferno_bus_assets.png") and not auto.find_element(
-                "home/mirror_dungeons_assets.png"
-            ):
+            # 活动期间（如瓦尔普吉斯之夜）驾驶页左侧多出活动卡，镜牢按钮变小、上移；
+            # 旧位置认不到时按活动布局再找一次
+            if auto.click_element("home/mirror_dungeons_event_assets.png"):
+                log.debug("按活动页面布局点击镜牢入口")
+                continue
+            if auto.find_element("home/inferno_bus_assets.png") and not _mirror_dungeons_visible():
                 sleep(1)
-                if not auto.find_element("home/mirror_dungeons_assets.png"):
+                if not _mirror_dungeons_visible(take_screenshot=True):
                     auto.click_element("home/window_assets.png")
                     continue
             if auto.find_element("base/renew_confirm_assets.png", model="clam") and auto.find_element(
